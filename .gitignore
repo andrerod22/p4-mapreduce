@@ -29,6 +29,7 @@ bundle.js
 # EECS 485 Project 4
 tmp
 output
+tutorials/
 
 # EECS 485 Project 5
 output*
