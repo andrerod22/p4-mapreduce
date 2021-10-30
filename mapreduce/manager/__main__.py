@@ -58,10 +58,8 @@ class Manager:
     
     # Thread Specific Functions
     def udp_socket(self, hb_port_number):
+        # TODO Test UDP SOCKET TO SEE IF IT RECEIVES MESSAGES
         # Create UDP Socket for UDP thread:
-        time.sleep(10)
-        click.echo("Shutting down UDP...")
-        """
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("UDP", hb_port_number))
@@ -75,14 +73,10 @@ class Manager:
             message_str = message_bytes.decode("utf-8")
             message_dict = json.loads(message_str)
             print(message_dict)
-        click.echo("Shutting down UDP...")
-        """
 
 
     def tcp_socket(self, port_number):
-        time.sleep(10)
-        click.echo("Shutting down TCP...")
-        """
+        # TODO Test TCP SOCKET TO SEE IF IT RECEIVES MESSAGES
         # Create an INET, STREAMing socket, this is TCP
         # Note: context manager syntax allows for sockets to automatically be closed when an exception is raised or control flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -128,7 +122,6 @@ class Manager:
                 except json.JSONDecodeError:
                     continue
                 print(message_dict)
-                """
 
     def fault_localization(self):
         time.sleep(10)
