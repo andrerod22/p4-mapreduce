@@ -30,7 +30,8 @@ class Manager:
             port_number, hb_port_number, 
             json.dumps(message_dict, indent=2),
         )
-        # TODO: Create a new folder tmp
+        logging.debug("IMPLEMENT ME!")
+
         cwd = Path.cwd()
         tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         if Path.exists(tmp_folder):
@@ -54,7 +55,6 @@ class Manager:
         # including those that fail JSON decoding. 
         # To ignore these messages use a try/except 
         # when you to try to load the message as shown below
-        logging.debug("IMPLEMENT ME!")
     
     # Thread Specific Functions
     def udp_socket(self, hb_port_number):
@@ -82,7 +82,7 @@ class Manager:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(("localhost", 8000))
+            sock.bind(("TCP-Manager", port_number))
             sock.listen()
 
             # Socket accept() and recv() will block for a maximum of 1 second.  If you
