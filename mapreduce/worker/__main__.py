@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 class Worker:
-    def __init__(self, manager_port, worker_port):
+    def __init__(self, tcp_port, udp_port, worker_port):
         logging.info("Starting worker:%s", worker_port)
         logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
 
@@ -19,8 +19,8 @@ class Worker:
         message_dict = {
             "message_type": "register_ack",
             "worker_host": "localhost",
-            "worker_port": 6001,
-            "worker_pid": 77811
+            "worker_port": worker_port,
+            "worker_pid": os.getpid()
         }
         logging.debug(
             "Worker:%s received\n%s",
@@ -31,15 +31,16 @@ class Worker:
         # TODO: you should remove this. This is just so the program doesn't
         # exit immediately!
         logging.debug("IMPLEMENT ME!")
-        time.sleep(120)
+        time.sleep(15)
 
 
 @click.command()
-@click.argument("manager_port", nargs=1, type=int)
+@click.argument("tcp_port", nargs=1, type=int)
+@click.argument("udp_port", nargs=1, type=int)
 @click.argument("worker_port", nargs=1, type=int)
-def main(manager_port, worker_port):
-    Worker(manager_port, worker_port)
-
+def main(tcp_port, udp_port, worker_port):
+    Worker(tcp_port, udp_port, worker_port)
+    print("shutting down worker...")
 
 if __name__ == '__main__':
     main()

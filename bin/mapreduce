@@ -8,24 +8,18 @@ usage() {
 
 }
 start_server(){
-  pgrep -f mapreduce-master
-  if $? == 1 
-  then
-    pgrep -f mapreduce-worker
-    if $? == 1 
-    then
-        echo "starting mapreduce ..."
-        mapreduce-master 6000 &
-        sleep 2
-        mapreduce-worker 6000 6001 &
-        mapreduce-worker 6000 6002 &
-    else
-        echo "Error: mapreduce-worker is already running"
-        exit 1
-    fi
-  else
-    echo "Error: mapreduce-master is already running"
+  if pgrep -f "mapreduce-manager" > /dev/null; then
+    echo "Error: mapreduce-manager is already running"
     exit 1
+  elif pgrep -f "mapreduce-worker" > /dev/null; then
+    echo "Error: mapreduce-worker is already running"
+    exit 1
+  else
+    echo "starting mapreduce ..."
+    mapreduce-manager 6000 5999 &
+    sleep 2
+    mapreduce-worker 6000 5999 6001 &
+    mapreduce-worker 6000 5999 6002 &
   fi
 }
 
@@ -47,9 +41,12 @@ stop_server(){
   set -o pipefail
 
   echo '{"message_type": "shutdown"}' | $NC localhost 6000 || true
+  echo "stopping mapreduce ..."
   sleep 2  # give the master time to receive signal and send to workers
-  echo "killing mapreduce master ..."
-  pkill -f mapreduce-master || true
+  echo "killing mapreduce manager ..."
+  pkill -f mapreduce-manager || true
+  echo "killing mapreduce workers ..."
+  pkill -f mapreduce-worker || true
 }
 
 restart_server(){
@@ -60,19 +57,19 @@ restart_server(){
 server_status(){
   # Check if processes are running
   # ASK ON PIAZZA: Should we cover the case where master is running but worker is not?
-  pgrep -f mapreduce-master
-  if $? == 0 then
-    echo "master running"
-  else
-    echo "master not running"
-  pgrep -f mapreduce-worker
-  if $? == 0 then
+  if pgrep -f "mapreduce-manager" > /dev/null; then
+    echo "manager running"
+  else 
+    echo "manager not running"
+  fi
+  if pgrep -f "mapreduce-worker" > /dev/null; then
     echo "workers running"
   else
     echo "workers not running"
+  fi
 }
 
-if [ $# -ne 1]; then
+if [ $# -ne 1 ]; then
   usage
   exit 1
 fi
