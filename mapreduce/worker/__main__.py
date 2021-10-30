@@ -4,7 +4,7 @@ import json
 import time
 import click
 import mapreduce.utils
-
+import pathlib
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -31,7 +31,7 @@ class Worker:
         # TODO: you should remove this. This is just so the program doesn't
         # exit immediately!
         logging.debug("IMPLEMENT ME!")
-        time.sleep(15)
+        time.sleep(10)
 
 
 @click.command()
