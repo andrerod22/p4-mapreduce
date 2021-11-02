@@ -149,6 +149,10 @@ class Worker:
             response = {
                 "message_type" : "register_ack"
             }
+        elif message_dict['message_type'] == 'shutdown':
+            response = {
+                "message_type" : "shutdown"
+            }
         return response
 
 

@@ -138,21 +138,22 @@ class Manager:
                     # additional work, perhaps we can create threads
                     # to wait and send the responses with the affilated sockets
                     # that match the worker ports.
-                    self.send_tcp_worker(response)
+                    self.send_tcp_worker(response, response['worker_port'])
 
                 elif response['message_type'] == 'shutdown':
-                    self.send_tcp_worker(response)
+                    for worker in self.workers:
+                        self.send_tcp_worker(response, worker)
                     break
-        self.alive = False
-        logging.debug("Manager:%s Shutting down...", self.port_number) 
+            self.alive = False
+            logging.debug("Manager:%s Shutting down...", self.port_number) 
 
                 
 
-    def send_tcp_worker(self, response):
+    def send_tcp_worker(self, response, worker_port):
         # create an INET, STREAMing socket, this is TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # connect to the server
-            sock.connect(("localhost", response['worker_port']))
+            sock.connect(("localhost", worker_port))
             # send a message
             message = json.dumps(response)
             sock.sendall(message.encode('utf-8'))
@@ -174,6 +175,7 @@ class Manager:
                 "worker_pid" : message_dict['worker_pid']
             }
             self.workers[response['worker_port']] = {
+                'port': response['worker_port'],
                 'pid': response['worker_pid'],
                 'status': 'ready',
                 'new-worker': True
