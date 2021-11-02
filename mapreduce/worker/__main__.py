@@ -14,10 +14,15 @@ logging.basicConfig(level=logging.DEBUG)
 class Worker:
     def __init__(self, manager_tcp_port, manager_hb_port, worker_port):
         self.worker_id = -1
+        self.alive = True
+        self.manager_tcp_port = manager_tcp_port
+        self.manager_hb_port = manager_hb_port
+        self.worker_port = worker_port
         logging.info("Starting worker:%s", worker_port)
         logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
 
         # This is a fake message to demonstrate pretty printing with logging
+        """
         message_dict = {
             "message_type": "register_ack",
             "worker_host": "localhost",
@@ -30,25 +35,44 @@ class Worker:
             json.dumps(message_dict, indent=2),
         )
         logging.debug("IMPLEMENT ME!")
+        """
         self.fetch_id()
-        tcp_thread = Thread(target=self.tcp_socket, args=(worker_port,))
+        tcp_thread = Thread(target=self.listen_tcp_worker, args=())
         tcp_thread.start()
-        # TODO: Send the register message to the Manager. 
-        # Make sure you are listening before sending this message.
-        # TODO: Upon receiving the register_ack message, create a new thread 
-        # which will be responsible for sending heartbeat messages to the Manager.
+
+        self.send_register_msg()
+
         tcp_thread.join()
 
     def fetch_id(self):
         self.worker_id = os.getpid()
-    def tcp_socket(self, worker_port):
+    
+    def send_register_msg(self):
+        # create an INET, STREAMing socket, this is TCP
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+
+            # Connect to the server
+            sock.connect(("localhost", self.manager_tcp_port))
+
+            # Send registration
+            message = json.dumps({
+                "message_type": "register",
+                "worker_host" : "localhost",
+                "worker_port" : self.worker_port,
+                "worker_pid" : self.worker_id
+                })
+            sock.sendall(message.encode('utf-8'))
+
+    def listen_tcp_worker(self):
         # TODO Test TCP SOCKET TO SEE IF IT RECEIVES MESSAGES
+        udp_thread = Thread()
+        #message_dict = None
         # Create an INET, STREAMing socket, this is TCP
         # Note: context manager syntax allows for sockets to automatically be closed when an exception is raised or control flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(("TCP-Worker", worker_port))
+            sock.bind(("localhost", self.worker_port))
             sock.listen()
 
             # Socket accept() and recv() will block for a maximum of 1 second.  If you
@@ -87,7 +111,46 @@ class Worker:
                     message_dict = json.loads(message_str)
                 except json.JSONDecodeError:
                     continue
-                print(message_dict)
+                response = self.generate_response(message_dict)
+                if response['message_type'] == 'register_ack':
+                    # Spawn a UDP thread and call the send_heartbeat funct:
+                    logging.debug("Worker:%s forwarding %s", self.worker_port, response)
+                    udp_thread = Thread(target=self.scream_udp_socket, args=())
+                    udp_thread.start()
+                if response['message_type'] == 'shutdown':
+                    # Kill the UDP thread before ending TCP thread:
+                    self.alive = False
+                    udp_thread.join()
+                    break
+                else:
+                    logging.debug("Worker:%s received %s", self.worker_port, message_dict)
+                # Send response
+        logging.debug("Worker:%s Shutting down...", self.worker_port)
+
+    def scream_udp_socket(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # Connect to the UDP socket on server
+            sock.connect(("localhost", self.manager_hb_port))
+            # Send a heartbeat every 2 seconds:
+            # Later, figure out fault tolerance (Once a worker dies)
+            while True:
+                if self.alive is False: break
+                message = json.dumps({
+                        "message_type": "heartbeat",
+                        "worker_pid": self.worker_id
+                    })
+                sock.sendall(message.encode('utf-8'))
+        logging.debug("Worker:%s Shutting down...", self.manager_hb_port) 
+
+
+    def generate_response(self, message_dict):
+        response = None
+        if message_dict['message_type'] == 'register_ack':
+            response = {
+                "message_type" : "register_ack"
+            }
+        return response
+
 
 
 
@@ -102,3 +165,9 @@ def main(manager_tcp_port, manager_hb_port, worker_port):
 
 if __name__ == '__main__':
     main()
+
+
+"""
+# message = json.dumps(response)
+# sock.sendall(message.encode('utf-8'))
+"""

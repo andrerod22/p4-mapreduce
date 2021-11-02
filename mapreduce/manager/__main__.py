@@ -16,8 +16,13 @@ class Manager:
     def __init__(self, port_number, hb_port_number):
         logging.info("Starting manager:%s, %s", port_number, hb_port_number)
         logging.info("Manager:%s, %s PWD %s", port_number, hb_port_number, os.getcwd())
-
+        self.port_number = port_number
+        self.hb_port_number = hb_port_number
+        self.alive = True
+        self.workers = {}
         # This is a fake message to demonstrate pretty printing with logging
+
+        """
         message_dict = {
             "message_type": "register",
             "worker_host": "localhost",
@@ -31,7 +36,7 @@ class Manager:
             json.dumps(message_dict, indent=2),
         )
         logging.debug("IMPLEMENT ME!")
-
+        """
         cwd = Path.cwd()
         tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         if Path.exists(tmp_folder):
@@ -41,50 +46,52 @@ class Manager:
             Path.mkdir(tmp_folder, parents=True)
         
         # Create threads:
-        #breakpoint()
-        udp_thread = Thread(target=self.udp_socket, args=(hb_port_number,))
-        tcp_thread = Thread(target=self.tcp_socket, args=(port_number,))
-        fault_thread = Thread(target=self.fault_localization)
+        # breakpoint()
+        # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
+        udp_thread = Thread(target=self.listen_udp_socket, args=())
+        tcp_thread = Thread(target=self.listen_tcp_manager, args=())
+        # fault_thread = Thread(target=self.fault_localization args=(self,))
         udp_thread.start()
         tcp_thread.start()
-        fault_thread.start()
+        # fault_thread.start()
         udp_thread.join()
         tcp_thread.join()
-        fault_thread.join()
+        # fault_thread.join()
         # TODO Wait for incoming messages! Ignore invalid messages, 
         # including those that fail JSON decoding. 
         # To ignore these messages use a try/except 
         # when you to try to load the message as shown below
     
     # Thread Specific Functions
-    def udp_socket(self, hb_port_number):
+    def listen_udp_socket(self):
+        # breakpoint()
         # TODO Test UDP SOCKET TO SEE IF IT RECEIVES MESSAGES
         # Create UDP Socket for UDP thread:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(("UDP", hb_port_number))
+            sock.bind(("localhost", self.hb_port_number))
             sock.settimeout(1)
-        # Receive incoming UDP messages
-        while True:
-            try:
-                message_bytes = sock.recv(4096)
-            except socket.timeout:
-                continue
-            message_str = message_bytes.decode("utf-8")
-            message_dict = json.loads(message_str)
-            print(message_dict)
+            # Receive incoming UDP messages
+            while True:
+                if self.alive is False: break
+                try:
+                    message_bytes = sock.recv(4096)
+                except socket.timeout:
+                    continue
+                message_str = message_bytes.decode("utf-8")
+                message_dict = json.loads(message_str)
+        logging.debug("Manager:%s Shutting down...", self.port_number) 
 
 
-    def tcp_socket(self, port_number):
+    def listen_tcp_manager(self):
         # TODO Test TCP SOCKET TO SEE IF IT RECEIVES MESSAGES
         # Create an INET, STREAMing socket, this is TCP
         # Note: context manager syntax allows for sockets to automatically be closed when an exception is raised or control flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(("TCP-Manager", port_number))
+            sock.bind(("localhost", self.port_number))
             sock.listen()
-
             # Socket accept() and recv() will block for a maximum of 1 second.  If you
             # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
@@ -108,6 +115,7 @@ class Manager:
                         try:
                             data = clientsocket.recv(4096)
                         except socket.timeout:
+                            logging.debug("Manager:%s timeout", self.port_number)
                             continue
                         if not data:
                             break
@@ -121,13 +129,73 @@ class Manager:
                     message_dict = json.loads(message_str)
                 except json.JSONDecodeError:
                     continue
-                print(message_dict)
+                logging.debug("Manager:%s received %s", self.port_number, message_dict) 
+                response = self.generate_response(message_dict)
+                # Send response to Worker's TCP
+                logging.debug("Manager:%s sent %s", self.port_number, response)
+                if response['message_type'] == 'register_ack':
+                    # Note: This is making the listening tcp thread do
+                    # additional work, perhaps we can create threads
+                    # to wait and send the responses with the affilated sockets
+                    # that match the worker ports.
+                    self.send_tcp_worker(response)
+
+                elif response['message_type'] == 'shutdown':
+                    self.send_tcp_worker(response)
+                    break
+        self.alive = False
+        logging.debug("Manager:%s Shutting down...", self.port_number) 
+
+                
+
+    def send_tcp_worker(self, response):
+        # create an INET, STREAMing socket, this is TCP
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            # connect to the server
+            sock.connect(("localhost", response['worker_port']))
+            # send a message
+            message = json.dumps(response)
+            sock.sendall(message.encode('utf-8'))
+            # logging.debug("Manager:%s sent %s", self.port_number, response)
+
+    # TODO Remove code duplication by adding function to utils.py
+    def generate_response(self, message_dict):
+        response = None
+        if message_dict['message_type'] == 'shutdown':
+            response = {
+                "message_type" : "shutdown"
+            }
+
+        elif message_dict['message_type'] == 'register':
+            response = {
+                "message_type": "register_ack",
+                "worker_host": "localhost",
+                "worker_port": message_dict['worker_port'],
+                "worker_pid" : message_dict['worker_pid']
+            }
+            self.workers[response['worker_port']] = {
+                'pid': response['worker_pid'],
+                'status': 'ready',
+                'new-worker': True
+            }
+
+        # TODO TEST NEW MANAGER JOB SEND/RESPONSE
+        elif message_dict['message_type'] == 'new_manager_job':
+            response = {
+                "message_type": "new_manager_job",
+                "input_directory": '<INPUT STRING>',
+                "output_directory": '<INPUT STRING>',
+                "mapper_executable": '<INPUT STRING>',
+                "reducer_executable": '<INPUT STRING>',
+                "num_mappers" : "<INPUT INTEGER>",
+                "num_reducers" : "<INPUT INTEGER>"
+            }
+        return response
+
 
     def fault_localization(self):
         time.sleep(10)
         click.echo("Shutting down fault localization...")
-    
-
 
 
 @click.command()
