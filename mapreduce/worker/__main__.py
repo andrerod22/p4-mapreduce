@@ -13,39 +13,19 @@ logging.basicConfig(level=logging.DEBUG)
 
 class Worker:
     def __init__(self, manager_tcp_port, manager_hb_port, worker_port):
-        self.worker_id = -1
+        self.worker_id = os.getpid()
         self.alive = True
         self.manager_tcp_port = manager_tcp_port
         self.manager_hb_port = manager_hb_port
         self.worker_port = worker_port
         logging.info("Starting worker:%s", worker_port)
         logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
-
-        # This is a fake message to demonstrate pretty printing with logging
-        """
-        message_dict = {
-            "message_type": "register_ack",
-            "worker_host": "localhost",
-            "worker_port": worker_port,
-            "worker_pid": os.getpid()
-        }
-        logging.debug(
-            "Worker:%s received\n%s",
-            worker_port,
-            json.dumps(message_dict, indent=2),
-        )
-        logging.debug("IMPLEMENT ME!")
-        """
-        self.fetch_id()
         tcp_thread = Thread(target=self.listen_tcp_worker, args=())
         tcp_thread.start()
 
         self.send_register_msg()
 
         tcp_thread.join()
-
-    def fetch_id(self):
-        self.worker_id = os.getpid()
     
     def send_register_msg(self):
         # create an INET, STREAMing socket, this is TCP
@@ -63,12 +43,12 @@ class Worker:
                 })
             sock.sendall(message.encode('utf-8'))
 
+
     def listen_tcp_worker(self):
-        # TODO Test TCP SOCKET TO SEE IF IT RECEIVES MESSAGES
         udp_thread = Thread()
-        #message_dict = None
         # Create an INET, STREAMing socket, this is TCP
-        # Note: context manager syntax allows for sockets to automatically be closed when an exception is raised or control flow returns.
+        # Note: context manager syntax allows for sockets to 
+        # automatically be closed when an exception is raised or control flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -126,6 +106,7 @@ class Worker:
                     logging.debug("Worker:%s received %s", self.worker_port, message_dict)
                 # Send response
         logging.debug("Worker:%s Shutting down...", self.worker_port)
+
 
     def scream_udp_socket(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:

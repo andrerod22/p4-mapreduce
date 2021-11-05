@@ -66,3 +66,4 @@ def test_integration_00_shutdown(processes):
     for process in processes:
         assert process.exitcode == 0, \
             f"{process.name} exitcode={process.exitcode}"
+    

@@ -8,7 +8,7 @@ import mapreduce.utils
 import pdb
 from threading import Thread
 from pathlib import Path
-
+from json import JSONDecodeError
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -79,7 +79,10 @@ class Manager:
                 except socket.timeout:
                     continue
                 message_str = message_bytes.decode("utf-8")
-                message_dict = json.loads(message_str)
+                try:
+                    message_dict = json.loads(message_str)
+                except (JSONDecodeError, TypeError):
+                    continue
         logging.debug("Manager:%s Shutting down...", self.port_number) 
 
 
