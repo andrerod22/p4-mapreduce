@@ -20,23 +20,6 @@ class Manager:
         self.hb_port_number = hb_port_number
         self.alive = True
         self.workers = {}
-        # This is a fake message to demonstrate pretty printing with logging
-
-        """
-        message_dict = {
-            "message_type": "register",
-            "worker_host": "localhost",
-            "worker_port1": 6001,
-            "worker_port2": 6002,
-            "worker_pid1": 77811,
-            "worker_pid2": 77893,
-        }
-        logging.debug("Manager:%s, %s received\n%s",
-            port_number, hb_port_number, 
-            json.dumps(message_dict, indent=2),
-        )
-        logging.debug("IMPLEMENT ME!")
-        """
         cwd = Path.cwd()
         tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         if Path.exists(tmp_folder):
@@ -46,7 +29,6 @@ class Manager:
             Path.mkdir(tmp_folder, parents=True)
         
         # Create threads:
-        # breakpoint()
         # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
         tcp_thread = Thread(target=self.listen_tcp_manager, args=())
@@ -57,10 +39,6 @@ class Manager:
         udp_thread.join()
         tcp_thread.join()
         # fault_thread.join()
-        # TODO Wait for incoming messages! Ignore invalid messages, 
-        # including those that fail JSON decoding. 
-        # To ignore these messages use a try/except 
-        # when you to try to load the message as shown below
     
     # Thread Specific Functions
     def listen_udp_socket(self):
@@ -216,3 +194,18 @@ def main(port_number, hb_port_number):
 if __name__ == '__main__':
     main()
 
+"""
+message_dict = {
+    "message_type": "register",
+    "worker_host": "localhost",
+    "worker_port1": 6001,
+    "worker_port2": 6002,
+    "worker_pid1": 77811,
+    "worker_pid2": 77893,
+}
+logging.debug("Manager:%s, %s received\n%s",
+    port_number, hb_port_number, 
+    json.dumps(message_dict, indent=2),
+)
+logging.debug("IMPLEMENT ME!")
+"""
