@@ -24,6 +24,8 @@ class Manager:
         self.jobs = defaultdict(dict)
         self.job_ids = 0
         self.tmp_folder = None
+        self.busy = False
+        self.jobs_waiting = []
         cwd = Path.cwd()
         #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         tmp_folder = Path(cwd / 'tmp/')
@@ -75,6 +77,7 @@ class Manager:
         # Note: context manager syntax allows for sockets to automatically be closed when an exception is raised or control flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
+            curr_job = None
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("localhost", self.port_number))
             sock.listen()
@@ -115,7 +118,14 @@ class Manager:
                     message_dict = json.loads(message_str)
                 except json.JSONDecodeError:
                     continue
-                logging.debug("Manager:%s received %s", self.port_number, message_dict) 
+                logging.debug("Manager:%s received %s", self.port_number, message_dict)
+                if message_dict['message_type'] == 'status':
+                    if message_dict['status'] == 'finished':
+                        # If Queue not Empty, pop and prepare job to be served later
+                        # OPTIONAL: Put this code into the generate response function!
+                        if self.jobs_waiting:
+                            curr_job = self.jobs_waiting[0]
+                            self.jobs_waiting.pop(0)
                 response = self.generate_response(message_dict)
                 # Send response to Worker's TCP
                 logging.debug("Manager:%s sent %s", self.port_number, response)
@@ -131,13 +141,29 @@ class Manager:
                         self.send_tcp_worker(response, worker)
                     break
                 elif response['message_type'] == 'new_manager_job':
-                    #if self.job_ids not in self.jobs:
-                        #self.jobs[self.job_ids] = {}
                     self.jobs[self.job_ids] = {
                         'id': self.job_ids
                     }
+                    # Generate job folder
                     self.make_job()
                     logging.info("Manager:%s new job number %s", self.port_number, self.jobs[self.job_ids])
+                    # Send the job to an available worker, 
+                    # If all workers are busy or manager is busy, place in queue
+                    # Busy Manger: Assigning Tasks, Grouping, Waiting for Workers
+                    # Busy Worker: Processing Job
+                    if self.busy:
+                        self.jobs_waiting.append(response)
+                        #self.add_to_queue(response)
+                    else:
+                        busy_count = 0
+                        for worker in self.workers:
+                           if worker['status'] == 'busy':
+                                busy_count += 1
+                           elif worker['status'] == 'ready':
+                                self.serve_job(response, worker)
+                        if busy_count == len(self.workers):
+                            self.jobs_waiting.append(response)
+                            #self.add_to_queue(response)
                     self.job_ids += 1
             self.alive = False
             logging.debug("Manager:%s Shutting down...", self.port_number) 
@@ -161,6 +187,12 @@ class Manager:
             else:
                 self.remove_jobs(item)
         path.rmdir()
+
+    def serve_job(self, response, worker):
+        print("Inserting into queue")
+
+    #def add_to_queue(self, response):
+        #print("adding to queue")
 
     def send_tcp_worker(self, response, worker_port):
         # create an INET, STREAMing socket, this is TCP
@@ -207,8 +239,10 @@ class Manager:
                 "num_mappers" : int(message_dict['num_mappers']),
                 "num_reducers" : int(message_dict['num_reducers'])
             }
+        elif message_dict['message_type'] == 'status':
+        # TODO: Implement the resposne for status (will look similar to new job)
+            response = {}
         return response
-
 
     def fault_localization(self):
         time.sleep(10)

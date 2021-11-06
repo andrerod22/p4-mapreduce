@@ -18,6 +18,7 @@ class Worker:
         self.manager_tcp_port = manager_tcp_port
         self.manager_hb_port = manager_hb_port
         self.worker_port = worker_port
+        self.status = 'ready'
         logging.info("Starting worker:%s", worker_port)
         logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
         tcp_thread = Thread(target=self.listen_tcp_worker, args=())
