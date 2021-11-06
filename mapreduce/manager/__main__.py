@@ -143,7 +143,6 @@ class Manager:
             logging.debug("Manager:%s Shutting down...", self.port_number) 
 
     def make_job(self):
-        cwd = Path.cwd()
         new_job = 'job-' + str(self.job_ids) + '/'
         folders = (
             Path(self.tmp_folder / new_job),
