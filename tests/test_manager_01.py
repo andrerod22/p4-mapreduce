@@ -6,7 +6,7 @@ import os
 import mapreduce
 import utils
 from utils import TESTDATA_DIR
-
+import pdb
 
 def test_manager_01_new_job(mocker):
     """Verify manager can receive a new job.
@@ -60,6 +60,7 @@ def test_manager_01_new_job(mocker):
         assert error.code == 0
 
     # Verify directories were created
+    # breakpoint()
     assert os.path.isdir("tmp/job-0")
     assert os.path.isdir("tmp/job-0/mapper-output")
     assert os.path.isdir("tmp/job-0/grouper-output")

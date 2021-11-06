@@ -9,6 +9,7 @@ import pdb
 from threading import Thread
 from pathlib import Path
 from json import JSONDecodeError
+from collections import defaultdict
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -19,15 +20,19 @@ class Manager:
         self.port_number = port_number
         self.hb_port_number = hb_port_number
         self.alive = True
-        self.workers = {}
+        self.workers = defaultdict(dict)
+        self.jobs = defaultdict(dict)
+        self.job_ids = 0
+        self.tmp_folder = None
         cwd = Path.cwd()
-        tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
-        if Path.exists(tmp_folder):
+        #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
+        tmp_folder = Path(cwd / 'tmp/')
+        try: Path.mkdir(tmp_folder, parents=True)
+        except(FileExistsError):
             for job in tmp_folder.glob('job-*'):
-                job.unlink()
-        else:
-            Path.mkdir(tmp_folder, parents=True)
-        
+                self.remove_jobs(job)
+        self.tmp_folder = tmp_folder
+
         # Create threads:
         # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
@@ -125,10 +130,38 @@ class Manager:
                     for worker in self.workers:
                         self.send_tcp_worker(response, worker)
                     break
+                elif response['message_type'] == 'new_manager_job':
+                    #if self.job_ids not in self.jobs:
+                        #self.jobs[self.job_ids] = {}
+                    self.jobs[self.job_ids] = {
+                        'id': self.job_ids
+                    }
+                    self.make_job()
+                    logging.info("Manager:%s new job number %s", self.port_number, self.jobs[self.job_ids])
+                    self.job_ids += 1
             self.alive = False
             logging.debug("Manager:%s Shutting down...", self.port_number) 
 
-                
+    def make_job(self):
+        cwd = Path.cwd()
+        new_job = 'job-' + str(self.job_ids) + '/'
+        folders = (
+            Path(self.tmp_folder / new_job),
+            Path(self.tmp_folder / new_job / 'mapper-output/'),
+            Path(self.tmp_folder / new_job / 'grouper-output/'),
+            Path(self.tmp_folder / new_job / 'reducer-output/')
+        )
+        for folder in folders:
+            Path.mkdir(folder, parents=True)
+
+    def remove_jobs(self, path):
+        path = Path(path)
+        for item in path.glob('*'):
+            if item.is_file():
+                item.unlink()
+            else:
+                self.remove_jobs(item)
+        path.rmdir()
 
     def send_tcp_worker(self, response, worker_port):
         # create an INET, STREAMing socket, this is TCP
@@ -155,6 +188,8 @@ class Manager:
                 "worker_port": message_dict['worker_port'],
                 "worker_pid" : message_dict['worker_pid']
             }
+            #if response['worker_port'] not in self.workers:
+                #self.workers[response['worker_port']] = {}
             self.workers[response['worker_port']] = {
                 'port': response['worker_port'],
                 'pid': response['worker_pid'],
@@ -166,12 +201,12 @@ class Manager:
         elif message_dict['message_type'] == 'new_manager_job':
             response = {
                 "message_type": "new_manager_job",
-                "input_directory": '<INPUT STRING>',
-                "output_directory": '<INPUT STRING>',
-                "mapper_executable": '<INPUT STRING>',
-                "reducer_executable": '<INPUT STRING>',
-                "num_mappers" : "<INPUT INTEGER>",
-                "num_reducers" : "<INPUT INTEGER>"
+                "input_directory": Path(message_dict['input_directory']),
+                "output_directory": Path(message_dict['output_directory']),
+                "mapper_executable": Path(message_dict['mapper_executable']),
+                "reducer_executable": Path(message_dict['reducer_executable']),
+                "num_mappers" : int(message_dict['num_mappers']),
+                "num_reducers" : int(message_dict['num_reducers'])
             }
         return response
 
@@ -195,6 +230,11 @@ if __name__ == '__main__':
     main()
 
 """
+Error Handling Code for failed socket sending:
+    except socket.error as err:
+        print("Failed to send job to manager.")
+        print(err)
+
 message_dict = {
     "message_type": "register",
     "worker_host": "localhost",
