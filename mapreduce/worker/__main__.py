@@ -7,6 +7,7 @@ import click
 import mapreduce.utils
 import pathlib
 import socket
+import subprocess
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -43,6 +44,14 @@ class Worker:
                 })
             sock.sendall(message.encode('utf-8'))
 
+
+    def handle_msg(self, message_dict):
+        fileInput = message_dict["input_files"]
+        outFileName = fileInput.replace("tests/testdata/input_small/", "")
+        fileOutput = message_dict["output_directory"] + outFileName
+        with open(fileInput, 'r') as inFile, (fileOutput, 'w') as outFile:
+            subprocess.run([message_dict["executable"], inFile], 
+                           stdout=outFile, text=True, check=True)
 
     def listen_tcp_worker(self):
         udp_thread = Thread()
