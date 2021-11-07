@@ -66,6 +66,34 @@ class Worker:
                 })
             sock.sendall(message.encode('utf-8'))
 
+    def handle_grouping(self, message_dict):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            # Connect to the server
+            sock.connect(("localhost", self.manager_tcp_port))
+
+            # Send registration
+            message = json.dumps({
+                "message_type": "status",
+                "output_file" : "",
+                "status": "finished",
+                "worker_pid": self.worker_id
+                })
+            sock.sendall(message.encode('utf-8'))
+
+    def handle_reduce(self, message_dict):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            # Connect to the server
+            sock.connect(("localhost", self.manager_tcp_port))
+
+            # Send registration
+            message = json.dumps({
+                "message_type": "status",
+                "output_files" : "",
+                "status": "finished",
+                "worker_pid": self.worker_id
+                })
+            sock.sendall(message.encode('utf-8'))
+
     def listen_tcp_worker(self):
         udp_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
