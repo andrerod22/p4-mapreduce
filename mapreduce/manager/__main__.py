@@ -7,6 +7,7 @@ import click
 import mapreduce.utils
 import pdb
 from threading import Thread
+from queue import Queue
 from pathlib import Path
 from json import JSONDecodeError
 from collections import defaultdict
@@ -21,9 +22,11 @@ class Manager:
         self.hb_port_number = hb_port_number
         self.alive = True
         self.workers = defaultdict(dict)
-        self.jobs = defaultdict(dict)
         self.job_ids = 0
         self.tmp_folder = None
+        self.jobs_waiting = Queue(maxsize=0)
+        self.curr_job = None
+        self.map_tasks = []
         cwd = Path.cwd()
         #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         tmp_folder = Path(cwd / 'tmp/')
@@ -116,6 +119,15 @@ class Manager:
                 except json.JSONDecodeError:
                     continue
                 logging.debug("Manager:%s received %s", self.port_number, message_dict) 
+                if message_dict['message_type'] == 'status':
+                    if message_dict['status'] == 'finished':
+                        self.workers[message_dict['worker_port']]['status'] = 'ready'
+                        # If Queue not Empty, pop and prepare job to be served later
+                        # OPTIONAL: Put this code into the generate response function!
+                        # if not self.jobs_waiting.empty(): #WARNING: race condition can cause queue to increase in size before empty() is called. 
+                        #     self.curr_job = self.jobs_waiting.get()
+                        # else:
+                        #     self.curr_job = None #set it back to None if we currently don't have a job. 
                 response = self.generate_response(message_dict)
                 # Send response to Worker's TCP
                 logging.debug("Manager:%s sent %s", self.port_number, response)
@@ -131,13 +143,12 @@ class Manager:
                         self.send_tcp_worker(response, worker)
                     break
                 elif response['message_type'] == 'new_manager_job':
-                    #if self.job_ids not in self.jobs:
-                        #self.jobs[self.job_ids] = {}
-                    self.jobs[self.job_ids] = {
-                        'id': self.job_ids
-                    }
                     self.make_job()
-                    logging.info("Manager:%s new job number %s", self.port_number, self.jobs[self.job_ids])
+                    if self.curr_job is not None: #if manager is busy. 
+                        self.jobs_waiting.put(response)
+                    else:
+                        self.map_stage()
+                    logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
                     self.job_ids += 1
             self.alive = False
             logging.debug("Manager:%s Shutting down...", self.port_number) 
@@ -152,6 +163,42 @@ class Manager:
         )
         for folder in folders:
             Path.mkdir(folder, parents=True)
+
+    def serve_job(self, response, worker):
+        self.workers[worker['port']]['status'] = 'busy'
+        #should handle multiple types of jobs of mapReduce 
+        #Implement, serve job to worker. 
+    
+    def map_stage(self, response):
+        logging.info("Manager:%s begin map stage", self.port_number)
+        self.handle_partioning(response)
+        busy_count = 0
+        for worker in self.workers:
+            if worker['status'] == 'busy':
+                busy_count += 1
+            elif worker['status'] == 'ready':
+                self.serve_job(response, worker)
+        if busy_count == len(self.workers):
+            self.jobs_waiting.put(response)
+
+        logging.info("Manager:%s end map stage", self.port_number)
+
+    def handle_partioning(self, response):
+        input_dir = response["input_directory"]
+        path = Path(input_dir)
+        #https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
+        input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
+                        os.listdir(input_dir) ) )
+        partioned = [] #list of list of strings
+        for idx, file in enumerate(input_files):
+            insertdx = idx % response["num_mappers"] # int 
+            if not isinstance(partioned[insertdx], list):
+                partioned.insert(insertdx, file)
+            else:
+                partioned[insertdx].append(file)
+        self.map_tasks = partioned
+
+
 
     def remove_jobs(self, path):
         path = Path(path)
@@ -187,8 +234,6 @@ class Manager:
                 "worker_port": message_dict['worker_port'],
                 "worker_pid" : message_dict['worker_pid']
             }
-            #if response['worker_port'] not in self.workers:
-                #self.workers[response['worker_port']] = {}
             self.workers[response['worker_port']] = {
                 'port': response['worker_port'],
                 'pid': response['worker_pid'],
@@ -213,6 +258,7 @@ class Manager:
     def fault_localization(self):
         time.sleep(10)
         click.echo("Shutting down fault localization...")
+
 
 
 @click.command()
