@@ -46,12 +46,25 @@ class Worker:
 
 
     def handle_msg(self, message_dict):
-        fileInput = message_dict["input_files"]
-        outFileName = fileInput.replace("tests/testdata/input_small/", "")
-        fileOutput = message_dict["output_directory"] + outFileName
-        with open(fileInput, 'r') as inFile, (fileOutput, 'w') as outFile:
-            subprocess.run([message_dict["executable"], inFile], 
-                           stdout=outFile, text=True, check=True)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            fileInput = message_dict["input_files"]
+            outFileName = fileInput.replace("tests/testdata/input_small/", "")
+            fileOutput = message_dict["output_directory"] + outFileName
+            with open(fileInput, 'r') as inFile, (fileOutput, 'w') as outFile:
+                subprocess.run([message_dict["executable"], inFile], 
+                            stdout=outFile, text=True, check=True)
+            # Connect to the server
+            sock.connect(("localhost", self.manager_tcp_port))
+
+            outFileString = "[ " + fileOutput + " ]"
+            # Send registration
+            message = json.dumps({
+                "message_type": "status",
+                "output_files" : str(outFileString),
+                "status": "finished",
+                "worker_pid": self.worker_id
+                })
+            sock.sendall(message.encode('utf-8'))
 
     def listen_tcp_worker(self):
         udp_thread = Thread()
