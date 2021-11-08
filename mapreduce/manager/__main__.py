@@ -86,6 +86,8 @@ class Manager:
             # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
+                if self.workers and self.jobs:
+                    self.execute_job()
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
                 try:
@@ -122,16 +124,16 @@ class Manager:
                 logging.debug("Manager:%s received %s", self.port_number, message_dict)
                 if message_dict['message_type'] == 'status':
                     if message_dict['status'] == 'finished':
-                        self.workers[message_dict['worker_pid']['status']] = 'ready'
-                        #Remove task from list that worker finished:
                         pid = message_dict['worker_pid']
+                        self.workers[pid]['status'] = 'ready'
+                        #Remove task from list that worker finished:
                         if self.workers[pid]['task_type'] == 'map':
                             self.map_tasks.pop(self.workers[pid]['task_number'])
                         else:
                             self.reduce_tasks.pop(self.workers[pid]['task_number'])
                 response = self.generate_response(message_dict)
                 # Send response to Worker's TCP
-                logging.debug("Manager:%s sent %s", self.port_number, response)
+                #logging.debug("Manager:%s sent %s", self.port_number, response)
                 if response['message_type'] == 'register_ack':
                     # Note: This is making the listening tcp thread do
                     # additional work, perhaps we can create threads
@@ -152,7 +154,8 @@ class Manager:
                     # Busy Manger: Assigning Tasks, Grouping, 
                     # Busy Worker: Processing Job
                     self.jobs.append(response)
-                    self.execute_job()
+                    if self.workers and self.jobs:
+                        self.execute_job()
                     #if self.busy:
                         #self.jobs.append(response)
                     # else:
@@ -272,11 +275,14 @@ class Manager:
                 "mapper_executable": message_dict['mapper_executable'],
                 "reducer_executable": message_dict['reducer_executable'],
                 "num_mappers" : int(message_dict['num_mappers']),
-                "num_reducers" : int(message_dict['num_reducers'])
+                "num_reducers" : int(message_dict['num_reducers']),
+                "full_output_directory": "tmp/job-{}/mapper-output".format(self.job_ids) if message_dict['output_directory'] == 'output' else None
             }
         elif message_dict['message_type'] == 'status':
         # TODO: Implement the resposne for status (will look similar to new job)
-            response = {}
+            response = {
+                'message_type' : 'status'
+            }
         return response
 
     def fault_localization(self):
@@ -296,7 +302,7 @@ class Manager:
                         "message_type": "new_worker_task",
                         "input_files": self.map_tasks[i],
                         "executable": curr_job['mapper_executable'],
-                        "output_directory": curr_job['output_directory'],
+                        "output_directory": curr_job['full_output_directory'] if curr_job['full_output_directory'] else curr_job['output_directory'],
                         "worker_pid": self.workers[worker]['pid']
                     }
                     self.send_tcp_worker(response, self.workers[worker]['port'])
@@ -340,12 +346,13 @@ class Manager:
             insertdx = idx % curr_job["num_mappers"] # int
             #logging.debug("insertdx: %s", insertdx) 
             #if not isinstance(partioned, list):
+            file_path = curr_job['input_directory'] + '/' + str(file)
             if len(partioned) == insertdx:
-                partioned.insert(insertdx, file)
+                partioned.insert(insertdx, str(file_path))
             else:
                 prev = partioned.pop(insertdx)
                 #partioned[insertdx].append(file)
-                partioned.insert(insertdx, [prev, file])
+                partioned.insert(insertdx, [prev, file_path])
         self.map_tasks = partioned
         logging.debug("Map Tasks: %s", self.map_tasks)
  

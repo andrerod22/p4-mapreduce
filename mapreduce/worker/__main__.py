@@ -6,6 +6,7 @@ from threading import Thread
 import click
 import mapreduce.utils
 import pathlib
+from pathlib import Path
 import socket
 import subprocess
 # Configure logging
@@ -48,20 +49,32 @@ class Worker:
 
     def handle_msg(self, message_dict):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            logging.debug("input: %s, output: %s, executable: %s", message_dict['input_files'], message_dict['output_directory'], message_dict['executable'])
+            #outFileName = fileInput.replace("tests/testdata/input_small/", "")
             fileInput = message_dict["input_files"]
-            outFileName = fileInput.replace("tests/testdata/input_small/", "")
-            fileOutput = message_dict["output_directory"] + outFileName
-            with open(fileInput, 'r') as inFile, (fileOutput, 'w') as outFile:
-                subprocess.run([message_dict["executable"], inFile], 
-                            stdout=outFile, text=True, check=True)
+            output_files = []
+            for file in fileInput:
+                file_input_path = Path(file)
+                file_name = str(file.split('/')[-1])
+                logging.debug("file_name: %s", file_name)
+                #file_output_path =  # + outFileName
+                file_output_path = Path(message_dict["output_directory"]) / file_name
+                output_files.append(str(file_output_path))
+                #with open(file_input_path, 'r') as inFile, (file_output_path, 'w') as out_file:
+                #input_obj = open(file_input_path, 'r')
+                #TODO FINISH THIS: CURRENTLY EXITING WITH 1 NOT SUCESSFUL
+                #p1 = subprocess.run(['cat', str(file_input_path)], capture_output=True, text=True)
+                
+                with open(str(file_output_path), 'w') as f:
+                    subprocess.run([message_dict["executable"], str(file_input_path)], stdout=f, text=True, check=True)
+                #input_obj.close()
             # Connect to the server
             sock.connect(("localhost", self.manager_tcp_port))
-
-            outFileString = "[ " + fileOutput + " ]"
+            #out_file_string = "[ " + file_output + " ]"
             # Send registration
             message = json.dumps({
                 "message_type": "status",
-                "output_files" : str(outFileString),
+                "output_files" : output_files,
                 "status": "finished",
                 "worker_pid": self.worker_id
                 })
@@ -155,6 +168,9 @@ class Worker:
                     except(RuntimeError):
                         pass
                     break
+                elif response['message_type'] == 'new_worker_task':
+                    self.handle_msg(response)
+
                 else:
                     logging.debug("Worker:%s received %s", self.worker_port, message_dict)
                 # Send response
@@ -187,7 +203,14 @@ class Worker:
             response = {
                 "message_type" : "shutdown"
             }
-        
+        elif message_dict['message_type'] == 'new_worker_task':
+            response = {
+                "message_type": 'new_worker_task',
+                "input_files": message_dict['input_files'],
+                "executable": message_dict['executable'],
+                "output_directory": message_dict['output_directory'],
+                "worker_pid": message_dict['worker_pid']
+            }
         return response
 
 
