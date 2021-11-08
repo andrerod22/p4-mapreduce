@@ -21,11 +21,12 @@ class Manager:
         self.hb_port_number = hb_port_number
         self.alive = True
         self.workers = defaultdict(dict)
-        self.jobs = defaultdict(dict)
+        self.curr_worker = None
         self.job_ids = 0
         self.tmp_folder = None
         self.busy = False
-        self.jobs_waiting = []
+        self.jobs = []
+        self.map_tasks = []
         cwd = Path.cwd()
         #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         tmp_folder = Path(cwd / 'tmp/')
@@ -49,8 +50,7 @@ class Manager:
     
     # Thread Specific Functions
     def listen_udp_socket(self):
-        # breakpoint()
-        # TODO Test UDP SOCKET TO SEE IF IT RECEIVES MESSAGES
+        # TODO DECLARE DEAD WORKER IF MORE THAN 5 PINGS UNRESPONDED
         # Create UDP Socket for UDP thread:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -72,12 +72,12 @@ class Manager:
 
 
     def listen_tcp_manager(self):
-        # TODO Test TCP SOCKET TO SEE IF IT RECEIVES MESSAGES
+        mgr_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
-        # Note: context manager syntax allows for sockets to automatically be closed when an exception is raised or control flow returns.
+        # Note: context manager syntax allows for sockets to automatically be closed 
+        # when an exception is raised or control flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
-            curr_job = None
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("localhost", self.port_number))
             sock.listen()
@@ -121,11 +121,7 @@ class Manager:
                 logging.debug("Manager:%s received %s", self.port_number, message_dict)
                 if message_dict['message_type'] == 'status':
                     if message_dict['status'] == 'finished':
-                        # If Queue not Empty, pop and prepare job to be served later
-                        # OPTIONAL: Put this code into the generate response function!
-                        if self.jobs_waiting:
-                            curr_job = self.jobs_waiting[0]
-                            self.jobs_waiting.pop(0)
+                        self.workers[message_dict['worker_pid']['status']] = 'ready'
                 response = self.generate_response(message_dict)
                 # Send response to Worker's TCP
                 logging.debug("Manager:%s sent %s", self.port_number, response)
@@ -137,35 +133,26 @@ class Manager:
                     self.send_tcp_worker(response, response['worker_port'])
 
                 elif response['message_type'] == 'shutdown':
+                    logging.debug("Shutting down workers: %s", self.workers) 
                     for worker in self.workers:
-                        self.send_tcp_worker(response, worker)
+                        self.send_tcp_worker(response, self.workers[worker]['port'])
                     break
                 elif response['message_type'] == 'new_manager_job':
-                    self.jobs[self.job_ids] = {
-                        'id': self.job_ids
-                    }
-                    # Generate job folder
                     self.make_job()
-                    logging.info("Manager:%s new job number %s", self.port_number, self.jobs[self.job_ids])
                     # Send the job to an available worker, 
                     # If all workers are busy or manager is busy, place in queue
-                    # Busy Manger: Assigning Tasks, Grouping, Waiting for Workers
+                    # Busy Manger: Assigning Tasks, Grouping, 
                     # Busy Worker: Processing Job
                     if self.busy:
-                        self.jobs_waiting.append(response)
-                        #self.add_to_queue(response)
+                        self.jobs.append(response)
                     else:
-                        busy_count = 0
-                        for worker in self.workers:
-                           if worker['status'] == 'busy':
-                                busy_count += 1
-                           elif worker['status'] == 'ready':
-                                self.serve_job(response, worker)
-                        if busy_count == len(self.workers):
-                            self.jobs_waiting.append(response)
-                            #self.add_to_queue(response)
+                        self.jobs.append(response)
+                        mgr_thread = Thread(target=self.execute_job, args=())
+                        self.execute_job(response)
+                    logging.info("Manager:%s new job number %s", self.port_number, self.jobs[self.job_ids])
                     self.job_ids += 1
             self.alive = False
+            mgr_thread.join()
             logging.debug("Manager:%s Shutting down...", self.port_number) 
 
     def make_job(self):
@@ -188,11 +175,48 @@ class Manager:
                 self.remove_jobs(item)
         path.rmdir()
 
-    def serve_job(self, response, worker):
-        print("Inserting into queue")
+    def execute_job(self):
+        #Keep thread alive, as long as jobs are pending
+        while self.jobs and self.alive:
+            '''
+                "message_type": "new_manager_job",
+                "input_directory": Path(message_dict['input_directory']),
+                "output_directory": Path(message_dict['output_directory']),
+                "mapper_executable": Path(message_dict['mapper_executable']),
+                "reducer_executable": Path(message_dict['reducer_executable']),
+                "num_mappers" : int(message_dict['num_mappers']),
+                "num_reducers" : int(message_dict['num_reducers'])
+            '''
+            #Check if Workers are available:
+            busy_count = 0
+            curr_worker = None
+            curr_job = None
+            for worker in self.workers:
+                if self.workers[worker]['status'] == 'busy':
+                    busy_count += 1
+                elif self.workers[worker]['status'] == 'ready':
+                    self.curr_worker = worker
+                    worker['status'] = 'busy'
+                    break
+            if busy_count == len(self.workers):
+                break
 
-    #def add_to_queue(self, response):
-        #print("adding to queue")
+            #Begin Map-Reduce Phase:
+            self.busy = True
+            curr_job = self.jobs.pop(0)
+
+            # TODO: Mapping (Andrew)
+            self.map_stage(curr_job)
+            
+            # TODO: Grouping (N/A)
+            self.group_stage()
+
+            # TODO: Reduction (N/A)
+            self.reduce_stage()
+            logging.debug("Map-Reduction Complete")
+        
+        logging.debug("Map-Reduction Stopping...") 
+        self.busy = False
 
     def send_tcp_worker(self, response, worker_port):
         # create an INET, STREAMing socket, this is TCP
@@ -221,7 +245,8 @@ class Manager:
             }
             #if response['worker_port'] not in self.workers:
                 #self.workers[response['worker_port']] = {}
-            self.workers[response['worker_port']] = {
+            # NOTE: Changed keys from worker_port to worker_pid: 11/7/21
+            self.workers[response['worker_pid']] = {
                 'port': response['worker_port'],
                 'pid': response['worker_pid'],
                 'status': 'ready',
@@ -248,6 +273,34 @@ class Manager:
         time.sleep(10)
         click.echo("Shutting down fault localization...")
 
+    def map_stage(self, curr_job):
+        #Andrew's Work
+        logging.info("Manager:%s begin map stage", self.port_number)
+        self.handle_partioning(curr_job)
+        logging.info("Manager:%s end map stage", self.port_number)
+
+
+    def group_stage(self):
+        pass
+
+    def reduce_stage(self):
+        pass
+
+    def handle_partioning(self, curr_job):
+        #Andrew's Work
+        input_dir = curr_job["input_directory"]
+        path = Path(input_dir)
+        #https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
+        input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
+                        os.listdir(input_dir) ) )
+        partioned = [] #list of list of strings
+        for idx, file in enumerate(input_files):
+            insertdx = idx % curr_job["num_mappers"] # int 
+            if not isinstance(partioned[insertdx], list):
+                partioned.insert(insertdx, file)
+            else:
+                partioned[insertdx].append(file)
+        self.map_tasks = partioned
 
 @click.command()
 @click.argument("port_number", nargs=1, type=int)
