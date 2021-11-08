@@ -101,7 +101,9 @@ class Worker:
                 if response['message_type'] == 'shutdown':
                     # Kill the UDP thread before ending TCP thread:
                     self.alive = False
-                    udp_thread.join()
+                    try: udp_thread.join()
+                    except(RuntimeError):
+                        pass
                     break
                 else:
                     logging.debug("Worker:%s received %s", self.worker_port, message_dict)

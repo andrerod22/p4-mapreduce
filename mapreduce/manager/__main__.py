@@ -27,6 +27,7 @@ class Manager:
         self.busy = False
         self.jobs = []
         self.map_tasks = []
+        self.reduce_tasks = []
         cwd = Path.cwd()
         #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         tmp_folder = Path(cwd / 'tmp/')
@@ -72,7 +73,7 @@ class Manager:
 
 
     def listen_tcp_manager(self):
-        mgr_thread = Thread()
+        #mgr_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
         # Note: context manager syntax allows for sockets to automatically be closed 
         # when an exception is raised or control flow returns.
@@ -122,6 +123,12 @@ class Manager:
                 if message_dict['message_type'] == 'status':
                     if message_dict['status'] == 'finished':
                         self.workers[message_dict['worker_pid']['status']] = 'ready'
+                        #Remove task from list that worker finished:
+                        pid = message_dict['worker_pid']
+                        if self.workers[pid]['task_type'] == 'map':
+                            self.map_tasks.pop(self.workers[pid]['task_number'])
+                        else:
+                            self.reduce_tasks.pop(self.workers[pid]['task_number'])
                 response = self.generate_response(message_dict)
                 # Send response to Worker's TCP
                 logging.debug("Manager:%s sent %s", self.port_number, response)
@@ -139,6 +146,7 @@ class Manager:
                     break
                 elif response['message_type'] == 'new_manager_job':
                     self.make_job()
+                    logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
                     # Send the job to an available worker, 
                     # If all workers are busy or manager is busy, place in queue
                     # Busy Manger: Assigning Tasks, Grouping, 
@@ -147,12 +155,14 @@ class Manager:
                         self.jobs.append(response)
                     else:
                         self.jobs.append(response)
-                        mgr_thread = Thread(target=self.execute_job, args=())
-                        self.execute_job(response)
-                    logging.info("Manager:%s new job number %s", self.port_number, self.jobs[self.job_ids])
+                        #mgr_thread = Thread(target=self.execute_job, args=())
+                        #mgr_thread.start()
+                        #self.execute_job()
                     self.job_ids += 1
             self.alive = False
-            mgr_thread.join()
+            #try: mgr_thread.join()
+            #except(RuntimeError):
+                #pass
             logging.debug("Manager:%s Shutting down...", self.port_number) 
 
     def make_job(self):
@@ -176,47 +186,43 @@ class Manager:
         path.rmdir()
 
     def execute_job(self):
-        #Keep thread alive, as long as jobs are pending
-        while self.jobs and self.alive:
-            '''
-                "message_type": "new_manager_job",
-                "input_directory": Path(message_dict['input_directory']),
-                "output_directory": Path(message_dict['output_directory']),
-                "mapper_executable": Path(message_dict['mapper_executable']),
-                "reducer_executable": Path(message_dict['reducer_executable']),
-                "num_mappers" : int(message_dict['num_mappers']),
-                "num_reducers" : int(message_dict['num_reducers'])
-            '''
-            #Check if Workers are available:
-            busy_count = 0
-            curr_worker = None
-            curr_job = None
-            for worker in self.workers:
-                if self.workers[worker]['status'] == 'busy':
-                    busy_count += 1
-                elif self.workers[worker]['status'] == 'ready':
-                    self.curr_worker = worker
-                    worker['status'] = 'busy'
-                    break
-            if busy_count == len(self.workers):
-                break
-
-            #Begin Map-Reduce Phase:
+            # Begin/Resume Map-Reduce Phase:
+            logging.debug("Map-Reduction Starting...")
             self.busy = True
             curr_job = self.jobs.pop(0)
 
             # TODO: Mapping (Andrew)
-            self.map_stage(curr_job)
-            
-            # TODO: Grouping (N/A)
-            self.group_stage()
+            if self.map_tasks:
+                self.map_stage(curr_job)
+            else:
+                if 'some_check_for_grouping' == 'something_we_can_use':
+                    # TODO: Grouping (N/A)
+                    self.group_stage()
+                else:
+                    # TODO: Reduction (N/A)
+                    if 'do_another_check' == 'something_that_is_constant':
+                        self.reduce_stage()
+                        logging.debug("Map-Reduction Complete")
 
-            # TODO: Reduction (N/A)
-            self.reduce_stage()
-            logging.debug("Map-Reduction Complete")
-        
-        logging.debug("Map-Reduction Stopping...") 
-        self.busy = False
+        # MULTI-THREADED APPROACH
+        # logging.debug("Inside execute_job...")
+        # Keep thread alive, as long as jobs are pending
+        # while self.jobs and self.alive:
+            #Check if Workers are available:
+            #busy_count = 0
+            #curr_worker = None
+            #curr_job = None
+            #for worker in self.workers:
+                #if self.workers[worker]['status'] == 'busy':
+                    #busy_count += 1
+                #elif self.workers[worker]['status'] == 'ready':
+                    #self.curr_worker = worker
+                    #break
+            #if busy_count == len(self.workers):
+                #break
+
+        #logging.debug("Map-Reduction Stopping...") 
+        #self.busy = False
 
     def send_tcp_worker(self, response, worker_port):
         # create an INET, STREAMing socket, this is TCP
@@ -250,7 +256,10 @@ class Manager:
                 'port': response['worker_port'],
                 'pid': response['worker_pid'],
                 'status': 'ready',
-                'new-worker': True
+                'task': '',
+                'task_type': '',
+                'task_number': -1
+                #'new-worker': True
             }
 
         # TODO TEST NEW MANAGER JOB SEND/RESPONSE
@@ -277,8 +286,37 @@ class Manager:
         #Andrew's Work
         logging.info("Manager:%s begin map stage", self.port_number)
         self.handle_partioning(curr_job)
-        logging.info("Manager:%s end map stage", self.port_number)
+        #copy_map_tasks = self.map_tasks
+        #while self.map_tasks:
+        for i in range(len(self.map_tasks)):
+            busy_count = 0
+            for worker in self.workers:
+                if self.workers[worker]['status'] == 'ready': 
+                    response = {
+                        "message_type": "new_worker_task",
+                        "input_files": self.map_tasks[i],
+                        "executable": curr_job['mapper_executable'],
+                        "output_directory": curr_job['output_directory'],
+                        "worker_pid": self.workers[worker]['pid']
+                    }
+                    self.send_tcp_worker(response, self.workers[worker]['port'])
+                    self.workers[worker]['status'] = 'busy'
+                    self.workers[worker]['task'] = self.map_tasks[i]
+                    self.workers[worker]['task_type'] = 'map'
+                    self.map_tasks.pop(0)
+                elif self.workers[worker]['status'] == 'busy':
+                    busy_count += 1
+                if busy_count == len(self.workers):
+                    return
+                #else: Worker is dead!
+                #elif (self.workers[worker]['status'] == 'dead'
+                    #and self.workers[worker]['task'] in self.map_tasks):
+                    # Reassign task to another worker if current worker dead:
+                    # Might need the index for self.map_tasks
+                    # Which is: [self.workers[worker]['task_number']]
+                    #pass
 
+        logging.info("Manager:%s end map stage", self.port_number)
 
     def group_stage(self):
         pass
@@ -301,6 +339,7 @@ class Manager:
             else:
                 partioned[insertdx].append(file)
         self.map_tasks = partioned
+        print(self.map_tasks)
 
 @click.command()
 @click.argument("port_number", nargs=1, type=int)
