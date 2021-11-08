@@ -151,13 +151,14 @@ class Manager:
                     # If all workers are busy or manager is busy, place in queue
                     # Busy Manger: Assigning Tasks, Grouping, 
                     # Busy Worker: Processing Job
-                    if self.busy:
-                        self.jobs.append(response)
-                    else:
-                        self.jobs.append(response)
+                    self.jobs.append(response)
+                    self.execute_job()
+                    #if self.busy:
+                        #self.jobs.append(response)
+                    # else:
+                        #self.jobs.append(response)
                         #mgr_thread = Thread(target=self.execute_job, args=())
                         #mgr_thread.start()
-                        #self.execute_job()
                     self.job_ids += 1
             self.alive = False
             #try: mgr_thread.join()
@@ -188,9 +189,9 @@ class Manager:
     def execute_job(self):
             # Begin/Resume Map-Reduce Phase:
             logging.debug("Map-Reduction Starting...")
-            self.busy = True
+            #self.busy = True
             curr_job = self.jobs.pop(0)
-
+            self.handle_partioning(curr_job)
             # TODO: Mapping (Andrew)
             if self.map_tasks:
                 self.map_stage(curr_job)
@@ -232,7 +233,7 @@ class Manager:
             # send a message
             message = json.dumps(response)
             sock.sendall(message.encode('utf-8'))
-            # logging.debug("Manager:%s sent %s", self.port_number, response)
+            logging.debug("Manager:%s sent %s", self.port_number, response)
 
     # TODO Remove code duplication by adding function to utils.py
     def generate_response(self, message_dict):
@@ -266,10 +267,10 @@ class Manager:
         elif message_dict['message_type'] == 'new_manager_job':
             response = {
                 "message_type": "new_manager_job",
-                "input_directory": Path(message_dict['input_directory']),
-                "output_directory": Path(message_dict['output_directory']),
-                "mapper_executable": Path(message_dict['mapper_executable']),
-                "reducer_executable": Path(message_dict['reducer_executable']),
+                "input_directory": message_dict['input_directory'],
+                "output_directory": message_dict['output_directory'],
+                "mapper_executable": message_dict['mapper_executable'],
+                "reducer_executable": message_dict['reducer_executable'],
                 "num_mappers" : int(message_dict['num_mappers']),
                 "num_reducers" : int(message_dict['num_reducers'])
             }
@@ -285,7 +286,6 @@ class Manager:
     def map_stage(self, curr_job):
         #Andrew's Work
         logging.info("Manager:%s begin map stage", self.port_number)
-        self.handle_partioning(curr_job)
         #copy_map_tasks = self.map_tasks
         #while self.map_tasks:
         for i in range(len(self.map_tasks)):
@@ -326,20 +326,29 @@ class Manager:
 
     def handle_partioning(self, curr_job):
         #Andrew's Work
+        #logging.debug("Partioning...")
         input_dir = curr_job["input_directory"]
+        #logging.debug("Input_Dir: %s", input_dir)
         path = Path(input_dir)
         #https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
         input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
                         os.listdir(input_dir) ) )
+        #logging.debug("Input_Files: %s", input_files)
         partioned = [] #list of list of strings
         for idx, file in enumerate(input_files):
-            insertdx = idx % curr_job["num_mappers"] # int 
-            if not isinstance(partioned[insertdx], list):
+            #logging.debug("IDX: %s, FILE: %s", idx, file)
+            insertdx = idx % curr_job["num_mappers"] # int
+            #logging.debug("insertdx: %s", insertdx) 
+            #if not isinstance(partioned, list):
+            if len(partioned) == insertdx:
                 partioned.insert(insertdx, file)
             else:
-                partioned[insertdx].append(file)
+                prev = partioned.pop(insertdx)
+                #partioned[insertdx].append(file)
+                partioned.insert(insertdx, [prev, file])
         self.map_tasks = partioned
-        print(self.map_tasks)
+        logging.debug("Map Tasks: %s", self.map_tasks)
+ 
 
 @click.command()
 @click.argument("port_number", nargs=1, type=int)

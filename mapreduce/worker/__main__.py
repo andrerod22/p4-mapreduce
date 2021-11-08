@@ -137,6 +137,7 @@ class Worker:
             response = {
                 "message_type" : "shutdown"
             }
+        
         return response
 
 
