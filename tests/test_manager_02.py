@@ -43,7 +43,7 @@ def worker_message_generator(mock_socket, manager_log):
     # Wait for Manager to send one map message
     # WE KEEP RUNNING FOREVER HERE
     # TODO: FIND THIS BUG
-    breakpoint()
+    # breakpoint()
     utils.wait_for_map_messages(mock_socket, num=1)
 
     # Status finished message from both mappers

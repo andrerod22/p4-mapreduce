@@ -22,9 +22,10 @@ class Manager:
         self.alive = True
         self.workers = defaultdict(dict)
         self.curr_worker = None
+        self.curr_job = None
         self.job_ids = 0
         self.tmp_folder = None
-        self.busy = False
+        self.handle_partition_done = False
         self.jobs = []
         self.map_tasks = []
         self.reduce_tasks = []
@@ -127,10 +128,8 @@ class Manager:
                         pid = message_dict['worker_pid']
                         self.workers[pid]['status'] = 'ready'
                         #Remove task from list that worker finished:
-                        if self.workers[pid]['task_type'] == 'map':
-                            self.map_tasks.pop(self.workers[pid]['task_number'])
-                        else:
-                            self.reduce_tasks.pop(self.workers[pid]['task_number'])
+                        logging.debug("Mapping Tasks Left: %s", self.map_tasks)
+                        self.execute_job()
                 response = self.generate_response(message_dict)
                 # Send response to Worker's TCP
                 #logging.debug("Manager:%s sent %s", self.port_number, response)
@@ -193,12 +192,18 @@ class Manager:
             # Begin/Resume Map-Reduce Phase:
             logging.debug("Map-Reduction Starting...")
             #self.busy = True
-            curr_job = self.jobs.pop(0)
-            self.handle_partioning(curr_job)
+            if self.jobs:
+                self.curr_job = self.jobs.pop(0)
             # TODO: Mapping (Andrew)
+            # Gurantees we only do partitioning once per job
+            if not self.handle_partition_done:
+                self.handle_partioning(self.curr_job)
+            
+            # Check if there are still map_tasks we need to do: 
             if self.map_tasks:
-                self.map_stage(curr_job)
+                self.map_stage(self.curr_job)
             else:
+                logging.debug("Moving to grouping...")
                 if 'some_check_for_grouping' == 'something_we_can_use':
                     # TODO: Grouping (N/A)
                     self.group_stage()
@@ -207,7 +212,7 @@ class Manager:
                     if 'do_another_check' == 'something_that_is_constant':
                         self.reduce_stage()
                         logging.debug("Map-Reduction Complete")
-
+            logging.debug("Leaving Map-Reduce Phase (for now)")
         # MULTI-THREADED APPROACH
         # logging.debug("Inside execute_job...")
         # Keep thread alive, as long as jobs are pending
@@ -313,6 +318,7 @@ class Manager:
                 elif self.workers[worker]['status'] == 'busy':
                     busy_count += 1
                 if busy_count == len(self.workers):
+                    logging.debug("All workers busy!")
                     return
                 #else: Worker is dead!
                 #elif (self.workers[worker]['status'] == 'dead'
@@ -331,6 +337,7 @@ class Manager:
         pass
 
     def handle_partioning(self, curr_job):
+        self.handle_partition_done = True
         #Andrew's Work
         #logging.debug("Partioning...")
         input_dir = curr_job["input_directory"]
@@ -390,3 +397,12 @@ logging.debug("Manager:%s, %s received\n%s",
 )
 logging.debug("IMPLEMENT ME!")
 """
+
+#Logic for implemented pop AFTER workers send "finish" status:
+                        #if self.workers[pid]['task_type'] == 'map':
+                            #for task in self.map_tasks:
+                                #if self.workers[pid]['task'] == self.map_tasks[task]:
+                                    #self.map_tasks.pop(task)
+                        #else:
+                            #self.reduce_tasks.pop(self.workers[pid]['task_number'])
+                        #logging.debug("Mapping Tasks Left: %s", self.map_tasks)
