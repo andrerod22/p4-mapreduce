@@ -6,7 +6,7 @@ import logging
 import mapreduce
 import utils
 from utils import TESTDATA_DIR
-
+import pdb
 
 def worker_message_generator(mock_socket, manager_log):
     """Fake Worker messages."""
@@ -41,7 +41,11 @@ def worker_message_generator(mock_socket, manager_log):
     )
 
     # Wait for Manager to send one map message
+    # WE KEEP RUNNING FOREVER HERE
+    # TODO: FIND THIS BUG
+    # breakpoint()
     utils.wait_for_map_messages(mock_socket, num=1)
+    #M: --> W
 
     # Status finished message from both mappers
     yield json.dumps({

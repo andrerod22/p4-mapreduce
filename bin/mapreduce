@@ -20,6 +20,7 @@ start_server(){
     sleep 2
     mapreduce-worker 6000 5999 6001 &
     mapreduce-worker 6000 5999 6002 &
+    mapreduce-submit --mapper tests/testdata/exec/wc_map.sh
   fi
 }
 
