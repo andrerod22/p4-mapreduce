@@ -87,8 +87,11 @@ class Manager:
             # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
-                #if self.workers and self.jobs:
-                    #self.execute_job()
+                for worker in self.workers:
+                    if self.workers[worker]['status'] == 'ready' and self.jobs:
+                        self.execute_job()
+                    #elif not self.jobs:
+                        #return None
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
                 try:
@@ -191,6 +194,7 @@ class Manager:
     def execute_job(self):
             # Begin/Resume Map-Reduce Phase:
             logging.info("Map-Reduction Starting...")
+            logging.info("Maps Left: %s", self.map_tasks)
             #self.busy = True
             if self.jobs:
                 self.curr_job = self.jobs.pop(0)
@@ -203,6 +207,7 @@ class Manager:
             if self.map_tasks:
                 self.map_stage(self.curr_job)
             else:
+                #return None
                 logging.info("Moving to grouping...")
                 if 'some_check_for_grouping' == 'something_we_can_use':
                     # TODO: Grouping (N/A)
@@ -213,6 +218,7 @@ class Manager:
                         self.reduce_stage()
                         logging.debug("Map-Reduction Complete")
             logging.info("Leaving Map-Reduce Phase (for now)")
+            #return None
         # MULTI-THREADED APPROACH
         # logging.debug("Inside execute_job...")
         # Keep thread alive, as long as jobs are pending
@@ -237,11 +243,12 @@ class Manager:
         # create an INET, STREAMing socket, this is TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # connect to the server
+            
             sock.connect(("localhost", worker_port))
             # send a message
             message = json.dumps(response)
             sock.sendall(message.encode('utf-8'))
-            logging.info("Manager:%s sent %s", self.port_number, response)
+            logging.info("Manager:%s sent %s to %s", self.port_number, response, worker_port)
 
     # TODO Remove code duplication by adding function to utils.py
     def generate_response(self, message_dict):
@@ -314,7 +321,7 @@ class Manager:
                         "worker_pid": self.workers[worker]['pid']
                     }
                     # logging.info("Tasks:%s ", self.map_tasks)
-                    logging.info("Sending message to tcp worker...")
+                    # logging.info("Manager: %s Sending: %s", self.port_number, response)
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.map_tasks[i]
@@ -328,7 +335,7 @@ class Manager:
             #logging.info("stuck")
             if busy_count == len(self.workers):
                 logging.debug("All workers busy!")
-                #return 0
+                return None
                 #else: Worker is dead!
                 #elif (self.workers[worker]['status'] == 'dead'
                     #and self.workers[worker]['task'] in self.map_tasks):
@@ -359,7 +366,7 @@ class Manager:
             tasks = [input_files[x] for x in range(len(input_files)) if x % curr_job['num_mappers'] == indx]
             partioned.append(tasks)
         self.map_tasks = partioned
-        logging.info("Map Tasks: %s", self.map_tasks)
+        #logging.info("Map Tasks: %s", self.map_tasks)
  
 
 @click.command()
