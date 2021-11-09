@@ -49,14 +49,14 @@ class Worker:
 
     def handle_msg(self, message_dict):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            logging.debug("input: %s, output: %s, executable: %s", message_dict['input_files'], message_dict['output_directory'], message_dict['executable'])
+            logging.info("input: %s, output: %s, executable: %s", message_dict['input_files'], message_dict['output_directory'], message_dict['executable'])
             #outFileName = fileInput.replace("tests/testdata/input_small/", "")
             fileInput = message_dict["input_files"]
             output_files = []
             for file in fileInput:
                 file_input_path = Path(file)
                 file_name = str(file.split('/')[-1])
-                logging.debug("file_name: %s", file_name)
+                logging.info("file_name: %s", file_name)
                 #file_output_path =  # + outFileName
                 file_output_path = Path(message_dict["output_directory"]) / file_name
                 output_files.append(str(file_output_path))
@@ -156,9 +156,10 @@ class Worker:
                 except json.JSONDecodeError:
                     continue
                 response = self.generate_response(message_dict)
+                logging.info("Worker:%s received %s", self.worker_port, response)
                 if response['message_type'] == 'register_ack':
                     # Spawn a UDP thread and call the send_heartbeat funct:
-                    logging.debug("Worker:%s forwarding %s", self.worker_port, response)
+                    logging.info("Worker:%s forwarding %s", self.worker_port, response)
                     udp_thread = Thread(target=self.scream_udp_socket, args=())
                     udp_thread.start()
                 if response['message_type'] == 'shutdown':
@@ -195,6 +196,7 @@ class Worker:
 
     def generate_response(self, message_dict):
         response = None
+        logging.info("Worker: %s Received message: %s", self.worker_port, message_dict)
         if message_dict['message_type'] == 'register_ack':
             response = {
                 "message_type" : "register_ack"

@@ -87,8 +87,8 @@ class Manager:
             # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
-                if self.workers and self.jobs:
-                    self.execute_job()
+                #if self.workers and self.jobs:
+                    #self.execute_job()
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
                 try:
@@ -147,7 +147,7 @@ class Manager:
                     break
                 elif response['message_type'] == 'new_manager_job':
                     self.make_job()
-                    logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
+                    # logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
                     # Send the job to an available worker, 
                     # If all workers are busy or manager is busy, place in queue
                     # Busy Manger: Assigning Tasks, Grouping, 
@@ -190,7 +190,7 @@ class Manager:
 
     def execute_job(self):
             # Begin/Resume Map-Reduce Phase:
-            logging.debug("Map-Reduction Starting...")
+            logging.info("Map-Reduction Starting...")
             #self.busy = True
             if self.jobs:
                 self.curr_job = self.jobs.pop(0)
@@ -203,7 +203,7 @@ class Manager:
             if self.map_tasks:
                 self.map_stage(self.curr_job)
             else:
-                logging.debug("Moving to grouping...")
+                logging.info("Moving to grouping...")
                 if 'some_check_for_grouping' == 'something_we_can_use':
                     # TODO: Grouping (N/A)
                     self.group_stage()
@@ -212,7 +212,7 @@ class Manager:
                     if 'do_another_check' == 'something_that_is_constant':
                         self.reduce_stage()
                         logging.debug("Map-Reduction Complete")
-            logging.debug("Leaving Map-Reduce Phase (for now)")
+            logging.info("Leaving Map-Reduce Phase (for now)")
         # MULTI-THREADED APPROACH
         # logging.debug("Inside execute_job...")
         # Keep thread alive, as long as jobs are pending
@@ -241,7 +241,7 @@ class Manager:
             # send a message
             message = json.dumps(response)
             sock.sendall(message.encode('utf-8'))
-            logging.debug("Manager:%s sent %s", self.port_number, response)
+            logging.info("Manager:%s sent %s", self.port_number, response)
 
     # TODO Remove code duplication by adding function to utils.py
     def generate_response(self, message_dict):
@@ -299,9 +299,12 @@ class Manager:
         logging.info("Manager:%s begin map stage", self.port_number)
         #copy_map_tasks = self.map_tasks
         #while self.map_tasks:
+        # logging.info("Workers: %s", self.workers)
         for i in range(len(self.map_tasks)):
+            # logging.info("On task: %s", i)
             busy_count = 0
             for worker in self.workers:
+                # logging.info("On worker:%s",worker)
                 if self.workers[worker]['status'] == 'ready': 
                     response = {
                         "message_type": "new_worker_task",
@@ -310,16 +313,22 @@ class Manager:
                         "output_directory": curr_job['full_output_directory'] if curr_job['full_output_directory'] else curr_job['output_directory'],
                         "worker_pid": self.workers[worker]['pid']
                     }
+                    # logging.info("Tasks:%s ", self.map_tasks)
+                    logging.info("Sending message to tcp worker...")
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.map_tasks[i]
                     self.workers[worker]['task_type'] = 'map'
                     self.map_tasks.pop(0)
                 elif self.workers[worker]['status'] == 'busy':
+                    logging.info("Worker %s is busy.", worker)
                     busy_count += 1
-                if busy_count == len(self.workers):
-                    logging.debug("All workers busy!")
-                    return
+                    #continue
+            #return
+            #logging.info("stuck")
+            if busy_count == len(self.workers):
+                logging.debug("All workers busy!")
+                #return 0
                 #else: Worker is dead!
                 #elif (self.workers[worker]['status'] == 'dead'
                     #and self.workers[worker]['task'] in self.map_tasks):
@@ -327,7 +336,7 @@ class Manager:
                     # Might need the index for self.map_tasks
                     # Which is: [self.workers[worker]['task_number']]
                     #pass
-
+            #logging.info("stuck")
         logging.info("Manager:%s end map stage", self.port_number)
 
     def group_stage(self):
@@ -338,30 +347,19 @@ class Manager:
 
     def handle_partioning(self, curr_job):
         self.handle_partition_done = True
-        #Andrew's Work
-        #logging.debug("Partioning...")
         input_dir = curr_job["input_directory"]
-        #logging.debug("Input_Dir: %s", input_dir)
         path = Path(input_dir)
         #https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
         input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
                         os.listdir(input_dir) ) )
-        #logging.debug("Input_Files: %s", input_files)
-        partioned = [] #list of list of strings
-        for idx, file in enumerate(input_files):
-            #logging.debug("IDX: %s, FILE: %s", idx, file)
-            insertdx = idx % curr_job["num_mappers"] # int
-            #logging.debug("insertdx: %s", insertdx) 
-            #if not isinstance(partioned, list):
-            file_path = curr_job['input_directory'] + '/' + str(file)
-            if len(partioned) == insertdx:
-                partioned.insert(insertdx, str(file_path))
-            else:
-                prev = partioned.pop(insertdx)
-                #partioned[insertdx].append(file)
-                partioned.insert(insertdx, [prev, file_path])
+        input_files = [curr_job['input_directory'] + '/' + file for file in input_files]
+        partioned = []
+        for i in range(0, curr_job['num_mappers']):
+            indx = i % curr_job["num_mappers"]
+            tasks = [input_files[x] for x in range(len(input_files)) if x % curr_job['num_mappers'] == indx]
+            partioned.append(tasks)
         self.map_tasks = partioned
-        logging.debug("Map Tasks: %s", self.map_tasks)
+        logging.info("Map Tasks: %s", self.map_tasks)
  
 
 @click.command()
@@ -406,3 +404,20 @@ logging.debug("IMPLEMENT ME!")
                         #else:
                             #self.reduce_tasks.pop(self.workers[pid]['task_number'])
                         #logging.debug("Mapping Tasks Left: %s", self.map_tasks)
+
+
+#Old logic for partitioning:
+            #logging.debug("insertdx: %s", insertdx) 
+            #if not isinstance(partioned, list):
+            #file_path = curr_job['input_directory'] + '/' + str(file)
+            #partioned.append(str(file_path))
+
+            #if len(partioned) <= insertdx:
+                #partioned.insert(insertdx, str(file_path))
+            #else:
+                #prev = partioned[insertdx]
+                #partioned.pop(insertdx)
+                #partioned.insert(insertdx, file_path)
+                #new_partition = partioned[::insertdx]
+                #partioned.pop(insertdx)
+                #partioned.insert(insertdx, new_partition)
