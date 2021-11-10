@@ -43,16 +43,13 @@ class Manager:
         # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
         tcp_thread = Thread(target=self.listen_tcp_manager, args=())
-        mgr_thread = Thread(target=self.mgr_thread_handle, args=())
 
         # fault_thread = Thread(target=self.fault_localization args=(self,))
         udp_thread.start()
         tcp_thread.start()
-        mgr_thread.start()
         # fault_thread.start()
         udp_thread.join()
         tcp_thread.join()
-        mgr_thread.join()
         # fault_thread.join()
     
     # Thread Specific Functions
