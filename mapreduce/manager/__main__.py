@@ -74,7 +74,6 @@ class Manager:
 
 
     def listen_tcp_manager(self):
-        #mgr_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
         # Note: context manager syntax allows for sockets to automatically be closed 
         # when an exception is raised or control flow returns.
@@ -135,10 +134,6 @@ class Manager:
                 # Send response to Worker's TCP
                 #logging.debug("Manager:%s sent %s", self.port_number, response)
                 if response['message_type'] == 'register_ack':
-                    # Note: This is making the listening tcp thread do
-                    # additional work, perhaps we can create threads
-                    # to wait and send the responses with the affilated sockets
-                    # that match the worker ports.
                     self.send_tcp_worker(response, response['worker_port'])
 
                 elif response['message_type'] == 'shutdown':
@@ -149,30 +144,20 @@ class Manager:
                 elif response['message_type'] == 'new_manager_job':
                     self.make_job()
                     logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
-                    # Send the job to an available worker, 
-                    # If all workers are busy or manager is busy, place in queue
-                    # Busy Manger: Assigning Tasks, Grouping, 
-                    # Busy Worker: Processing Job
                     self.jobs.append(response)
                     if response == self.jobs[0]:
                         logging.info("New job in progress..")
                         self.stages = ['map','group','reduce']
+                        self.curr_job = self.jobs[0]
+                        self.curr_job['job_id'] = self.job_ids
                         for worker in self.workers:
                             if self.workers[worker]['status'] == 'ready' and self.jobs:
                                 self.execute_job()
+                                break
                     else:
                         self.resume_job()
-                    #if self.busy:
-                        #self.jobs.append(response)
-                    # else:
-                        #self.jobs.append(response)
-                        #mgr_thread = Thread(target=self.execute_job, args=())
-                        #mgr_thread.start()
                     self.job_ids += 1
             self.alive = False
-            #try: mgr_thread.join()
-            #except(RuntimeError):
-                #pass
             logging.debug("Manager:%s Shutting down...", self.port_number) 
 
     def make_job(self):
@@ -198,12 +183,11 @@ class Manager:
     def execute_job(self):
             # Begin/Resume Map-Reduce Phase:
             logging.info("Map-Reduction Starting...")
-            logging.info("Tasks Left: %s", self.tasks)
             #self.busy = True
-            self.curr_job = self.jobs[0]
             if self.stages[0] == 'map':
                 if not self.handle_partition_done:
                     self.handle_partioning(self.curr_job['num_mappers'])
+                logging.info("Tasks Left: %s", self.tasks)
                 self.map_stage(self.curr_job)
             elif self.tasks and self.stages[0] == 'group':
                     self.group_stage()
@@ -212,7 +196,6 @@ class Manager:
             elif self.tasks and self.stages[0] == 'reduce':
                 self.reduce_stage(self.curr_job)
 
-                
             """
             else:
                 logging.info("Moving to grouping...")
@@ -228,26 +211,6 @@ class Manager:
                         logging.debug("Map-Reduction Complete")
             """
             logging.info("Leaving Map-Reduce Phase (for now)")
-            #return None
-        # MULTI-THREADED APPROACH
-        # logging.debug("Inside execute_job...")
-        # Keep thread alive, as long as jobs are pending
-        # while self.jobs and self.alive:
-            #Check if Workers are available:
-            #busy_count = 0
-            #curr_worker = None
-            #curr_job = None
-            #for worker in self.workers:
-                #if self.workers[worker]['status'] == 'busy':
-                    #busy_count += 1
-                #elif self.workers[worker]['status'] == 'ready':
-                    #self.curr_worker = worker
-                    #break
-            #if busy_count == len(self.workers):
-                #break
-
-        #logging.debug("Map-Reduction Stopping...") 
-        #self.busy = False
 
     def resume_job(self):
         if not self.tasks:
@@ -259,11 +222,14 @@ class Manager:
                 logging.debug("Leaving: %s", self.stages[0])
                 self.stages.pop(0)
                 self.handle_partition_done = False
-                if self.stages:
+                if not self.stages:
                     # Job is done, check queue for next job:
                     logging.debug("Job is done!")
                     if self.jobs:
                         self.jobs.pop(0)
+                        if self.jobs: 
+                            self.curr_job = self.jobs[0]
+                            self.curr_job['job_id'] = self.job_ids
         if self.jobs:
             logging.debug("Resuming job...")
             self.execute_job()
@@ -332,44 +298,36 @@ class Manager:
 
     def map_stage(self, curr_job):
         logging.info("Manager:%s begin map stage", self.port_number)
-        for i in range(len(self.tasks)):
-            # logging.info("On task: %s", i)
+        for _ in range(len(self.tasks)): #was originally a for loop. I think while loop is correct. 
+            logging.info("tasks left %s ", str(len(self.tasks)))
             busy_count = 0
             for worker in self.workers:
                 # logging.info("On worker:%s",worker)
                 if self.workers[worker]['status'] == 'ready': 
-                    job_id = 'job-' + str(self.job_ids) + '/'
+                    logging.info("current job: " + str(curr_job['job_id']))
+                    job_id = 'job-' + str(curr_job['job_id']) + '/'
+                    tmpPath = Path('tmp/')
                     response = {
                         "message_type": "new_worker_task",
-                        "input_files": self.tasks[i],
+                        "input_files": self.tasks[0],
                         "executable": curr_job['mapper_executable'],
-                        "output_directory": str(Path(self.tmp_folder / job_id / 'mapper-output/')),
+                        "output_directory": str(Path(tmpPath / job_id / 'mapper-output/')),
                         "worker_pid": self.workers[worker]['pid']
                     }
                     # logging.info("Tasks:%s ", self.map_tasks)
                     # logging.info("Manager: %s Sending: %s", self.port_number, response)
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
-                    self.workers[worker]['task'] = self.tasks[i]
+                    self.workers[worker]['task'] = self.tasks[0]
                     self.workers[worker]['task_type'] = 'map'
                     self.tasks.pop(0)
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
                     busy_count += 1
-                    #continue
-            #return
-            #logging.info("stuck")
             if busy_count == len(self.workers):
-                logging.debug("All workers busy!")
+                logging.info("All workers busy!")
                 return None
-                #else: Worker is dead!
-                #elif (self.workers[worker]['status'] == 'dead'
-                    #and self.workers[worker]['task'] in self.map_tasks):
-                    # Reassign task to another worker if current worker dead:
-                    # Might need the index for self.map_tasks
-                    # Which is: [self.workers[worker]['task_number']]
-                    #pass
-            #logging.info("stuck")
+            logging.info("tasks left: " + str(len(self.tasks)))
         logging.info("Manager:%s end map stage", self.port_number)
 
     def group_stage(self):
@@ -422,10 +380,8 @@ class Manager:
         logging.info("Manager:%s end reduce stage", self.port_number)
 
     def handle_partioning(self, num):
-        logging.info("Generating tasks...")
         self.handle_partition_done = True
         input_dir = self.curr_job["input_directory"]
-        path = Path(input_dir)
         # https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
         input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
                         os.listdir(input_dir) ) )
@@ -436,7 +392,6 @@ class Manager:
             tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
             partioned.append(tasks)
         self.tasks = partioned
-        logging.info("Tasks: %s", self.tasks)
  
 
 
