@@ -7,6 +7,7 @@ import click
 import mapreduce.utils
 import pdb
 from threading import Thread
+from queue import Queue
 from pathlib import Path
 from json import JSONDecodeError
 from collections import defaultdict
@@ -42,12 +43,16 @@ class Manager:
         # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
         tcp_thread = Thread(target=self.listen_tcp_manager, args=())
+        mgr_thread = Thread(target=self.mgr_thread_handle, args=())
+
         # fault_thread = Thread(target=self.fault_localization args=(self,))
         udp_thread.start()
         tcp_thread.start()
+        mgr_thread.start()
         # fault_thread.start()
         udp_thread.join()
         tcp_thread.join()
+        mgr_thread.join()
         # fault_thread.join()
     
     # Thread Specific Functions
@@ -74,7 +79,6 @@ class Manager:
 
 
     def listen_tcp_manager(self):
-        #mgr_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
         # Note: context manager syntax allows for sockets to automatically be closed 
         # when an exception is raised or control flow returns.
@@ -100,11 +104,6 @@ class Manager:
                     continue
                 print("Connection from", address[0])
 
-                # Receive data, one chunk at a time.  If recv() times out before we can
-                # read a chunk, then go back to the top of the loop and try again.
-                # When the client closes the connection, recv() returns empty data,
-                # which breaks out of the loop.  We make a simplifying assumption that
-                # the client will always cleanly close the connection.
                 with clientsocket:
                     message_chunks = []
                     while True:
@@ -116,8 +115,6 @@ class Manager:
                         if not data:
                             break
                         message_chunks.append(data)
-
-                # Decode list-of-byte-strings to UTF8 and parse JSON data
                 message_bytes = b''.join(message_chunks)
                 message_str = message_bytes.decode("utf-8")
 
@@ -129,16 +126,10 @@ class Manager:
                 if message_dict['message_type'] == 'status':
                     if message_dict['status'] == 'finished':
                         pid = message_dict['worker_pid']
+                        logging.info("Worker %s is finished", pid)
                         self.workers[pid]['status'] = 'ready'
-                        self.resume_job()
                 response = self.generate_response(message_dict)
-                # Send response to Worker's TCP
-                #logging.debug("Manager:%s sent %s", self.port_number, response)
                 if response['message_type'] == 'register_ack':
-                    # Note: This is making the listening tcp thread do
-                    # additional work, perhaps we can create threads
-                    # to wait and send the responses with the affilated sockets
-                    # that match the worker ports.
                     self.send_tcp_worker(response, response['worker_port'])
 
                 elif response['message_type'] == 'shutdown':
@@ -147,32 +138,15 @@ class Manager:
                         self.send_tcp_worker(response, self.workers[worker]['port'])
                     break
                 elif response['message_type'] == 'new_manager_job':
+                    #if all workers are busy then add to job queue. 
+                    #doesn't handle when new job
+                    breakpoint()
                     self.make_job()
-                    logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
-                    # Send the job to an available worker, 
-                    # If all workers are busy or manager is busy, place in queue
-                    # Busy Manger: Assigning Tasks, Grouping, 
-                    # Busy Worker: Processing Job
                     self.jobs.append(response)
-                    if response == self.jobs[0]:
-                        logging.info("New job in progress..")
-                        self.stages = ['map','group','reduce']
-                        for worker in self.workers:
-                            if self.workers[worker]['status'] == 'ready' and self.jobs:
-                                self.execute_job()
-                    else:
-                        self.resume_job()
-                    #if self.busy:
-                        #self.jobs.append(response)
-                    # else:
-                        #self.jobs.append(response)
-                        #mgr_thread = Thread(target=self.execute_job, args=())
-                        #mgr_thread.start()
+                    if self.curr_job is None:
+                        self.curr_job = response
                     self.job_ids += 1
             self.alive = False
-            #try: mgr_thread.join()
-            #except(RuntimeError):
-                #pass
             logging.debug("Manager:%s Shutting down...", self.port_number) 
 
     def make_job(self):
@@ -185,7 +159,7 @@ class Manager:
         )
         for folder in folders:
             Path.mkdir(folder, parents=True)
-
+    
     def remove_jobs(self, path):
         path = Path(path)
         for item in path.glob('*'):
@@ -277,7 +251,7 @@ class Manager:
             # send a message
             message = json.dumps(response)
             sock.sendall(message.encode('utf-8'))
-            logging.info("Manager:%s sent %s to %s", self.port_number, response, worker_port)
+            # logging.info("Manager:%s sent %s to %s", self.port_number, response, worker_port)
 
     # TODO Remove code duplication by adding function to utils.py
     def generate_response(self, message_dict):
@@ -346,8 +320,6 @@ class Manager:
                         "output_directory": str(Path(self.tmp_folder / job_id / 'mapper-output/')),
                         "worker_pid": self.workers[worker]['pid']
                     }
-                    # logging.info("Tasks:%s ", self.map_tasks)
-                    # logging.info("Manager: %s Sending: %s", self.port_number, response)
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.tasks[i]
@@ -356,20 +328,9 @@ class Manager:
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
                     busy_count += 1
-                    #continue
-            #return
-            #logging.info("stuck")
             if busy_count == len(self.workers):
-                logging.debug("All workers busy!")
-                return None
-                #else: Worker is dead!
-                #elif (self.workers[worker]['status'] == 'dead'
-                    #and self.workers[worker]['task'] in self.map_tasks):
-                    # Reassign task to another worker if current worker dead:
-                    # Might need the index for self.map_tasks
-                    # Which is: [self.workers[worker]['task_number']]
-                    #pass
-            #logging.info("stuck")
+                logging.info("All workers busy!")
+        #Run through to tell workers to see if any are dead and reassign their tasks. (implement later)
         logging.info("Manager:%s end map stage", self.port_number)
 
     def group_stage(self):
