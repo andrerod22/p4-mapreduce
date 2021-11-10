@@ -338,11 +338,12 @@ class Manager:
             for worker in self.workers:
                 # logging.info("On worker:%s",worker)
                 if self.workers[worker]['status'] == 'ready': 
+                    job_id = 'job-' + str(self.job_ids) + '/'
                     response = {
                         "message_type": "new_worker_task",
                         "input_files": self.tasks[i],
                         "executable": curr_job['mapper_executable'],
-                        "output_directory": curr_job['full_output_directory'] if curr_job['full_output_directory'] else curr_job['output_directory'],
+                        "output_directory": str(Path(self.tmp_folder / job_id / 'mapper-output/')),
                         "worker_pid": self.workers[worker]['pid']
                     }
                     # logging.info("Tasks:%s ", self.map_tasks)
