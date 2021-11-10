@@ -26,9 +26,9 @@ class Manager:
         self.job_ids = 0
         self.tmp_folder = None
         self.handle_partition_done = False
+        self.stages = []
         self.jobs = []
-        self.map_tasks = []
-        self.reduce_tasks = []
+        self.tasks = []
         cwd = Path.cwd()
         #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         tmp_folder = Path(cwd / 'tmp/')
@@ -87,9 +87,6 @@ class Manager:
             # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
-                for worker in self.workers:
-                    if self.workers[worker]['status'] == 'ready' and self.jobs:
-                        self.execute_job()
                     #elif not self.jobs:
                         #return None
                 # Wait for a connection for 1s.  The socket library avoids consuming
@@ -97,6 +94,9 @@ class Manager:
                 try:
                     clientsocket, address = sock.accept()
                 except socket.timeout:
+                    for worker in self.workers:
+                        if self.workers[worker]['status'] == 'ready': #and self.jobs and self.stages:
+                            self.resume_job()
                     continue
                 print("Connection from", address[0])
 
@@ -130,9 +130,7 @@ class Manager:
                     if message_dict['status'] == 'finished':
                         pid = message_dict['worker_pid']
                         self.workers[pid]['status'] = 'ready'
-                        #Remove task from list that worker finished:
-                        logging.debug("Mapping Tasks Left: %s", self.map_tasks)
-                        self.execute_job()
+                        self.resume_job()
                 response = self.generate_response(message_dict)
                 # Send response to Worker's TCP
                 #logging.debug("Manager:%s sent %s", self.port_number, response)
@@ -150,14 +148,20 @@ class Manager:
                     break
                 elif response['message_type'] == 'new_manager_job':
                     self.make_job()
-                    # logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
+                    logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
                     # Send the job to an available worker, 
                     # If all workers are busy or manager is busy, place in queue
                     # Busy Manger: Assigning Tasks, Grouping, 
                     # Busy Worker: Processing Job
                     self.jobs.append(response)
-                    if self.workers and self.jobs:
-                        self.execute_job()
+                    if response == self.jobs[0]:
+                        logging.info("New job in progress..")
+                        self.stages = ['map','group','reduce']
+                        for worker in self.workers:
+                            if self.workers[worker]['status'] == 'ready' and self.jobs:
+                                self.execute_job()
+                    else:
+                        self.resume_job()
                     #if self.busy:
                         #self.jobs.append(response)
                     # else:
@@ -194,29 +198,35 @@ class Manager:
     def execute_job(self):
             # Begin/Resume Map-Reduce Phase:
             logging.info("Map-Reduction Starting...")
-            logging.info("Maps Left: %s", self.map_tasks)
+            logging.info("Tasks Left: %s", self.tasks)
             #self.busy = True
-            if self.jobs:
-                self.curr_job = self.jobs.pop(0)
-            # TODO: Mapping (Andrew)
-            # Gurantees we only do partitioning once per job
-            if not self.handle_partition_done:
-                self.handle_partioning(self.curr_job)
-            
-            # Check if there are still map_tasks we need to do: 
-            if self.map_tasks:
+            self.curr_job = self.jobs[0]
+            if self.stages[0] == 'map':
+                if not self.handle_partition_done:
+                    self.handle_partioning(self.curr_job['num_mappers'])
                 self.map_stage(self.curr_job)
+            elif self.tasks and self.stages[0] == 'group':
+                    self.group_stage()
+            #if not self.handle_partition_done:
+                #self.handle_partioning(self.curr_job['num_reducers'])                   
+            elif self.tasks and self.stages[0] == 'reduce':
+                self.reduce_stage(self.curr_job)
+
+                
+            """
             else:
-                #return None
                 logging.info("Moving to grouping...")
-                if 'some_check_for_grouping' == 'something_we_can_use':
+                if self.tasks and self.stages[0] == 'group':
                     # TODO: Grouping (N/A)
                     self.group_stage()
                 else:
                     # TODO: Reduction (N/A)
-                    if 'do_another_check' == 'something_that_is_constant':
+                    if self.tasks and self.stages[0] == 'reduce':
                         self.reduce_stage()
+                    if not self.handle_partition_done:
+                        self.handle_partioning(self.curr_job, self.curr_job['num_reducers'])
                         logging.debug("Map-Reduction Complete")
+            """
             logging.info("Leaving Map-Reduce Phase (for now)")
             #return None
         # MULTI-THREADED APPROACH
@@ -238,6 +248,25 @@ class Manager:
 
         #logging.debug("Map-Reduction Stopping...") 
         #self.busy = False
+
+    def resume_job(self):
+        if not self.tasks:
+            # Check if any workers, died and reassign tasks:
+            #if self.check_for_deaths():
+                #self.tasks.append(self.get_dead_tasks())
+            #else:
+            if self.stages:
+                logging.debug("Leaving: %s", self.stages[0])
+                self.stages.pop(0)
+                self.handle_partition_done = False
+                if self.stages:
+                    # Job is done, check queue for next job:
+                    logging.debug("Job is done!")
+                    if self.jobs:
+                        self.jobs.pop(0)
+        if self.jobs:
+            logging.debug("Resuming job...")
+            self.execute_job()
 
     def send_tcp_worker(self, response, worker_port):
         # create an INET, STREAMing socket, this is TCP
@@ -273,8 +302,8 @@ class Manager:
                 'pid': response['worker_pid'],
                 'status': 'ready',
                 'task': '',
-                'task_type': '',
-                'task_number': -1
+                #'task_type': '',
+                #'task_number': -1
                 #'new-worker': True
             }
 
@@ -302,12 +331,8 @@ class Manager:
         click.echo("Shutting down fault localization...")
 
     def map_stage(self, curr_job):
-        #Andrew's Work
         logging.info("Manager:%s begin map stage", self.port_number)
-        #copy_map_tasks = self.map_tasks
-        #while self.map_tasks:
-        # logging.info("Workers: %s", self.workers)
-        for i in range(len(self.map_tasks)):
+        for i in range(len(self.tasks)):
             # logging.info("On task: %s", i)
             busy_count = 0
             for worker in self.workers:
@@ -315,7 +340,7 @@ class Manager:
                 if self.workers[worker]['status'] == 'ready': 
                     response = {
                         "message_type": "new_worker_task",
-                        "input_files": self.map_tasks[i],
+                        "input_files": self.tasks[i],
                         "executable": curr_job['mapper_executable'],
                         "output_directory": curr_job['full_output_directory'] if curr_job['full_output_directory'] else curr_job['output_directory'],
                         "worker_pid": self.workers[worker]['pid']
@@ -324,9 +349,9 @@ class Manager:
                     # logging.info("Manager: %s Sending: %s", self.port_number, response)
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
-                    self.workers[worker]['task'] = self.map_tasks[i]
+                    self.workers[worker]['task'] = self.tasks[i]
                     self.workers[worker]['task_type'] = 'map'
-                    self.map_tasks.pop(0)
+                    self.tasks.pop(0)
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
                     busy_count += 1
@@ -347,27 +372,72 @@ class Manager:
         logging.info("Manager:%s end map stage", self.port_number)
 
     def group_stage(self):
-        pass
+        logging.info("Manager:%s begin group stage", self.port_number)
+        self.stages.pop(0)
+        logging.info("Manager:%s end group stage", self.port_number)
 
-    def reduce_stage(self):
-        pass
 
-    def handle_partioning(self, curr_job):
+    def reduce_stage(self, curr_job):
+        logging.info("Manager:%s begin reduce stage", self.port_number)
+        self.stages.pop(0)
+        """
+        for i in range(len(self.tasks)):
+        # logging.info("On task: %s", i)
+            busy_count = 0
+            for worker in self.workers:
+                # logging.info("On worker:%s",worker)
+                if self.workers[worker]['status'] == 'ready': 
+                    response = {
+                        "message_type": "new_worker_task",
+                        "input_files": self.tasks[i],
+                        "executable": curr_job['mapper_executable'],
+                        "output_directory": curr_job['full_output_directory'] if curr_job['full_output_directory'] else curr_job['output_directory'],
+                        "worker_pid": self.workers[worker]['pid']
+                    }
+                    # logging.info("Tasks:%s ", self.map_tasks)
+                    # logging.info("Manager: %s Sending: %s", self.port_number, response)
+                    self.send_tcp_worker(response, self.workers[worker]['port'])
+                    self.workers[worker]['status'] = 'busy'
+                    self.workers[worker]['task'] = self.tasks[i]
+                    self.workers[worker]['task_type'] = 'reduce'
+                    self.tasks.pop(0)
+                elif self.workers[worker]['status'] == 'busy':
+                    logging.info("Worker %s is busy.", worker)
+                    busy_count += 1
+                    #continue
+            #return
+            #logging.info("stuck")
+            if busy_count == len(self.workers):
+                logging.debug("All workers busy!")
+                return None
+                #else: Worker is dead!
+                #elif (self.workers[worker]['status'] == 'dead'
+                    #and self.workers[worker]['task'] in self.map_tasks):
+                    # Reassign task to another worker if current worker dead:
+                    # Might need the index for self.map_tasks
+                    # Which is: [self.workers[worker]['task_number']]
+                    #pass
+        """
+        logging.info("Manager:%s end reduce stage", self.port_number)
+
+    def handle_partioning(self, num):
+        logging.info("Generating tasks...")
         self.handle_partition_done = True
-        input_dir = curr_job["input_directory"]
+        input_dir = self.curr_job["input_directory"]
         path = Path(input_dir)
-        #https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
+        # https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
         input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
                         os.listdir(input_dir) ) )
-        input_files = [curr_job['input_directory'] + '/' + file for file in input_files]
+        input_files = [self.curr_job["input_directory"] + '/' + file for file in input_files]
         partioned = []
-        for i in range(0, curr_job['num_mappers']):
-            indx = i % curr_job["num_mappers"]
-            tasks = [input_files[x] for x in range(len(input_files)) if x % curr_job['num_mappers'] == indx]
+        for i in range(0, num):
+            indx = i % num
+            tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
             partioned.append(tasks)
-        self.map_tasks = partioned
-        #logging.info("Map Tasks: %s", self.map_tasks)
+        self.tasks = partioned
+        logging.info("Tasks: %s", self.tasks)
  
+
 
 @click.command()
 @click.argument("port_number", nargs=1, type=int)
