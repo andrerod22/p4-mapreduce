@@ -132,10 +132,12 @@ class Manager:
                     break
                 elif response['message_type'] == 'new_manager_job':
                     #if all workers are busy then add to job queue. 
+                    #doesn't handle when new job
+                    breakpoint()
                     self.make_job()
+                    self.jobs.append(response)
                     if self.curr_job is None:
                         self.curr_job = response
-                    self.jobs.append(response)
                     self.job_ids += 1
             self.alive = False
             logging.debug("Manager:%s Shutting down...", self.port_number) 
@@ -162,21 +164,24 @@ class Manager:
 
     def mgr_thread_handle(self):
         #break out when all map_reduce tasks are finished. 
-        # pop from job queue here. 
-        map = False
-        group = False
-        reduce = False
-        while not (map and group and reduce):
-            if self.curr_job is not None: #run while loop (keep checking) until we have a job. 
-                self.map_stage(self.curr_job)
-                map = True
-                self.group_stage()
-                group = True
-                self.reduce_stage()
-                reduce = True
-        self.jobs.pop(0)
-        self.curr_job = None
-        logging.info("Map Reduce Complete!")
+        # pop from job queue here.
+        while True: 
+            map = False
+            group = False
+            reduce = False
+            while not (map and group and reduce):
+                if self.curr_job is not None: #run while loop (keep checking) until we have a job. 
+                    self.map_stage(self.curr_job)
+                    map = True
+                    self.group_stage()
+                    group = True
+                    self.reduce_stage()
+                    reduce = True
+            self.jobs.pop(0)
+            if len(self.jobs) > 0: self.curr_job = self.jobs[0] #if we have more in the job queue. 
+            else: self.curr_job = None
+            logging.info("Map Reduce Complete!")
+            if not self.alive: break
 
     def send_tcp_worker(self, response, worker_port):
         # create an INET, STREAMing socket, this is TCP
