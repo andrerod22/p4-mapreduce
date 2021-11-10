@@ -125,7 +125,7 @@ def test_manager_02_map(mocker, caplog):
         utils.wait_for_threads()
     except SystemExit as error:
         assert error.code == 0
-
+    # breakpoint()
     # Verify first 3 messages sent by the manager
     #
     # Pro-tip: show log messages and detailed diffs with
