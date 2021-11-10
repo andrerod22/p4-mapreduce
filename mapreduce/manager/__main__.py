@@ -378,9 +378,9 @@ class Manager:
 
 
     def reduce_stage(self, curr_job):
+        # TODO: Fix all paths for reduce!
         logging.info("Manager:%s begin reduce stage", self.port_number)
         self.stages.pop(0)
-        """
         for i in range(len(self.tasks)):
         # logging.info("On task: %s", i)
             busy_count = 0
@@ -390,7 +390,7 @@ class Manager:
                     response = {
                         "message_type": "new_worker_task",
                         "input_files": self.tasks[i],
-                        "executable": curr_job['mapper_executable'],
+                        "executable": curr_job['reducer_executable'],
                         "output_directory": curr_job['full_output_directory'] if curr_job['full_output_directory'] else curr_job['output_directory'],
                         "worker_pid": self.workers[worker]['pid']
                     }
@@ -417,7 +417,6 @@ class Manager:
                     # Might need the index for self.map_tasks
                     # Which is: [self.workers[worker]['task_number']]
                     #pass
-        """
         logging.info("Manager:%s end reduce stage", self.port_number)
 
     def handle_partioning(self, num):
