@@ -48,6 +48,7 @@ class Manager:
         # fault_thread = Thread(target=self.fault_localization args=(self,))
         udp_thread.start()
         tcp_thread.start()
+        mgr_thread.start()
         # fault_thread.start()
         udp_thread.join()
         tcp_thread.join()
@@ -90,9 +91,6 @@ class Manager:
             # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
-                for worker in self.workers:
-                    if self.workers[worker]['status'] == 'ready' and self.jobs:
-                        self.mgr_thread_handle()
                 try:
                     clientsocket, address = sock.accept()
                 except socket.timeout:
@@ -121,13 +119,9 @@ class Manager:
                 if message_dict['message_type'] == 'status':
                     if message_dict['status'] == 'finished':
                         pid = message_dict['worker_pid']
+                        logging.info("Worker %s is finished", pid)
                         self.workers[pid]['status'] = 'ready'
-                        #Remove task from list that worker finished:
-                        logging.debug("Mapping Tasks Left: %s", self.map_tasks)
-                        self.execute_job()
                 response = self.generate_response(message_dict)
-                # Send response to Worker's TCP
-                #logging.debug("Manager:%s sent %s", self.port_number, response)
                 if response['message_type'] == 'register_ack':
                     self.send_tcp_worker(response, response['worker_port'])
 
@@ -137,15 +131,11 @@ class Manager:
                         self.send_tcp_worker(response, self.workers[worker]['port'])
                     break
                 elif response['message_type'] == 'new_manager_job':
+                    #if all workers are busy then add to job queue. 
                     self.make_job()
-                    # logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
-                    # Send the job to an available worker, 
-                    # If all workers are busy or manager is busy, place in queue
-                    # Busy Manger: Assigning Tasks, Grouping, 
-                    # Busy Worker: Processing Job
+                    if self.curr_job is None:
+                        self.curr_job = response
                     self.jobs.append(response)
-                    if self.workers and self.jobs:
-                        self.execute_job()
                     self.job_ids += 1
             self.alive = False
             logging.debug("Manager:%s Shutting down...", self.port_number) 
@@ -171,13 +161,21 @@ class Manager:
         path.rmdir()
 
     def mgr_thread_handle(self):
-        #watch out for whenever the map_tasks isn't empty. 
         #break out when all map_reduce tasks are finished. 
-        if self.jobs:
-            self.curr_job = self.jobs.pop(0)
-        self.map_stage(self.curr_job)
-        self.group_stage()
-        self.reduce_stage()
+        # pop from job queue here. 
+        map = False
+        group = False
+        reduce = False
+        while not (map and group and reduce):
+            if self.curr_job is not None: #run while loop (keep checking) until we have a job. 
+                self.map_stage(self.curr_job)
+                map = True
+                self.group_stage()
+                group = True
+                self.reduce_stage()
+                reduce = True
+        self.jobs.pop(0)
+        self.curr_job = None
         logging.info("Map Reduce Complete!")
 
     def send_tcp_worker(self, response, worker_port):
@@ -189,7 +187,7 @@ class Manager:
             # send a message
             message = json.dumps(response)
             sock.sendall(message.encode('utf-8'))
-            logging.info("Manager:%s sent %s to %s", self.port_number, response, worker_port)
+            # logging.info("Manager:%s sent %s to %s", self.port_number, response, worker_port)
 
     # TODO Remove code duplication by adding function to utils.py
     def generate_response(self, message_dict):
@@ -251,7 +249,7 @@ class Manager:
         self.handle_partioning(curr_job)
         # logging.info(f"Number of workers {len(self.workers)}")
         while self.map_tasks:
-            # logging.info("On task: %s", i)
+            logging.info("TASKS REMAINING: %s", len(self.map_tasks))
             busy_count = 0
             for worker in self.workers:
                 # logging.info("On worker:%s",worker)
@@ -274,7 +272,6 @@ class Manager:
                     busy_count += 1
             if busy_count == len(self.workers):
                 logging.info("All workers busy!")
-                return None
         #Run through to tell workers to see if any are dead and reassign their tasks. (implement later)
         logging.info("Manager:%s end map stage", self.port_number)
 
