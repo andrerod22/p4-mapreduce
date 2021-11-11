@@ -29,6 +29,7 @@ class Manager:
         self.stages = []
         self.jobs = []
         self.tasks = []
+        self.sort_dex = 1 # Used for keeping track of sort file index, ex: sorted01, sorted02...
         cwd = Path.cwd()
         #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         tmp_folder = Path(cwd / 'tmp/')
@@ -181,36 +182,37 @@ class Manager:
         path.rmdir()
 
     def execute_job(self):
-            # Begin/Resume Map-Reduce Phase:
-            logging.info("Map-Reduction Starting...")
-            #self.busy = True
-            if self.stages[0] == 'map':
-                if not self.handle_partition_done:
-                    self.handle_partioning(self.curr_job['num_mappers'])
-                logging.info("Tasks Left: %s", self.tasks)
-                self.map_stage(self.curr_job)
-            elif self.tasks and self.stages[0] == 'group':
-                    self.group_stage()
-            #if not self.handle_partition_done:
-                #self.handle_partioning(self.curr_job['num_reducers'])                   
-            elif self.tasks and self.stages[0] == 'reduce':
-                self.reduce_stage(self.curr_job)
+        # Begin/Resume Map-Reduce Phase:
+        #self.curr_job is the response on new_manager_job. 
+        logging.info("Map-Reduction Starting...")
+        if self.stages[0] == 'map':
+            if not self.handle_partition_done:
+                self.handle_partioning(self.curr_job['num_mappers'])
+            logging.info("Tasks Left: %s", self.tasks)
+            self.map_stage(self.curr_job)
+        elif self.stages[0] == 'group':
+            self.sort_partition(self.curr_job)
+            self.group_stage(self.curr_job)                
+        elif self.tasks and self.stages[0] == 'reduce':
+            self.sort_dex = 1
+            # self.handle_partioning(self.curr_job['num_reducers'])
+            self.reduce_stage(self.curr_job)
 
-            """
+        """
+        else:
+            logging.info("Moving to grouping...")
+            if self.tasks and self.stages[0] == 'group':
+                # TODO: Grouping (N/A)
+                self.group_stage()
             else:
-                logging.info("Moving to grouping...")
-                if self.tasks and self.stages[0] == 'group':
-                    # TODO: Grouping (N/A)
-                    self.group_stage()
-                else:
-                    # TODO: Reduction (N/A)
-                    if self.tasks and self.stages[0] == 'reduce':
-                        self.reduce_stage()
-                    if not self.handle_partition_done:
-                        self.handle_partioning(self.curr_job, self.curr_job['num_reducers'])
-                        logging.debug("Map-Reduction Complete")
-            """
-            logging.info("Leaving Map-Reduce Phase (for now)")
+                # TODO: Reduction (N/A)
+                if self.tasks and self.stages[0] == 'reduce':
+                    self.reduce_stage()
+                if not self.handle_partition_done:
+                    self.handle_partioning(self.curr_job, self.curr_job['num_reducers'])
+                    logging.debug("Map-Reduction Complete")
+        """
+        logging.info("Leaving Map-Reduce Phase (for now)")
 
     def resume_job(self):
         if not self.tasks:
@@ -245,7 +247,6 @@ class Manager:
             sock.sendall(message.encode('utf-8'))
             logging.info("Manager:%s sent %s to %s", self.port_number, response, worker_port)
 
-    # TODO Remove code duplication by adding function to utils.py
     def generate_response(self, message_dict):
         response = None
         if message_dict['message_type'] == 'shutdown':
@@ -268,7 +269,6 @@ class Manager:
                 'pid': response['worker_pid'],
                 'status': 'ready',
                 'task': '',
-                #'task_type': '',
                 #'task_number': -1
                 #'new-worker': True
             }
@@ -292,9 +292,19 @@ class Manager:
             }
         return response
 
-    def fault_localization(self):
-        time.sleep(10)
-        click.echo("Shutting down fault localization...")
+    def handle_partioning(self, num):
+        self.handle_partition_done = True
+        input_dir = self.curr_job["input_directory"]
+        # https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
+        input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
+                        os.listdir(input_dir) ) )
+        input_files = [self.curr_job["input_directory"] + '/' + file for file in input_files]
+        partioned = []
+        for i in range(0, num):
+            indx = i % num
+            tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
+            partioned.append(tasks)
+        self.tasks = partioned
 
     def map_stage(self, curr_job):
         logging.info("Manager:%s begin map stage", self.port_number)
@@ -319,7 +329,6 @@ class Manager:
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.tasks[0]
-                    self.workers[worker]['task_type'] = 'map'
                     self.tasks.pop(0)
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
@@ -330,11 +339,55 @@ class Manager:
             logging.info("tasks left: " + str(len(self.tasks)))
         logging.info("Manager:%s end map stage", self.port_number)
 
-    def group_stage(self):
-        logging.info("Manager:%s begin group stage", self.port_number)
-        self.stages.pop(0)
-        logging.info("Manager:%s end group stage", self.port_number)
+    def sort_partition(self, curr_job):
+        #get list of input files, ex: "tmp/job-0/mapper-output/file01"
+        job_id = 'job-' + str(curr_job['job_id']) + '/'
+        tmpPath = Path('tmp/')
+        output_direc = Path(tmpPath / job_id / 'mapper-output/')
+        map_files = [str(output_direc) + e for e in output_direc.iterdir() if e.is_file()]
 
+        #round robin the map_output into self.tasks for each worker.
+        partitioned = []
+        num_workers = len(self.workers)
+        if len(map_files) >= num_workers: # If the number of files is greater than the number of workers. 
+            for i in range(0, num_workers):
+                indx = i % num_workers
+                tasks = [map_files[x] for x in range(len(map_files)) if x % num_workers == indx]
+                partitioned.append(tasks)
+        else: #if number of workers is more than number of files. 
+            for file in map_files:
+                partitioned.append([file])
+        self.tasks = partitioned 
+
+    def group_stage(self, curr_job):
+        ### Only handles the sorting portion. 
+        logging.info("Manager:%s begin group stage", self.port_number)
+        for _ in range(len(self.tasks)):
+            busy_count = 0
+            for worker in self.workers:
+                if self.workers[worker]['status'] == 'ready': 
+                    job_id = 'job-' + str(curr_job['job_id']) + '/'
+                    tmpPath = Path('tmp/')
+                    sort_num = "0" + self.sort_dex if self.sort_dex < 10 else self.sort_dex
+                    sort_path = "/sorted" + sort_num
+                    response = {
+                        "message_type": "new_sort_task",
+                        "input_files": self.tasks[0],
+                        "output_file": str(Path(tmpPath / job_id / 'grouper-output/'/sort_path)),
+                        "worker_pid": self.workers[worker]['pid']
+                    }
+                    self.send_tcp_worker(response, self.workers[worker]['port'])
+                    self.workers[worker]['status'] = 'busy'
+                    self.workers[worker]['task'] = self.tasks[0]
+                    self.tasks.pop(0)
+                    self.sort_dex += 1
+                elif self.workers[worker]['status'] == 'busy':
+                    logging.info("Worker %s is busy.", worker)
+                    busy_count += 1
+            if busy_count == len(self.workers):
+                logging.info("All workers busy!")
+                return None
+        logging.info("Manager:%s end group stage", self.port_number)
 
     def reduce_stage(self, curr_job):
         logging.info("Manager:%s begin reduce stage", self.port_number)
@@ -358,7 +411,6 @@ class Manager:
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.tasks[i]
-                    self.workers[worker]['task_type'] = 'reduce'
                     self.tasks.pop(0)
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
@@ -379,19 +431,9 @@ class Manager:
         """
         logging.info("Manager:%s end reduce stage", self.port_number)
 
-    def handle_partioning(self, num):
-        self.handle_partition_done = True
-        input_dir = self.curr_job["input_directory"]
-        # https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
-        input_files = sorted( filter( lambda x: os.path.isfile(os.path.join(input_dir, x)),
-                        os.listdir(input_dir) ) )
-        input_files = [self.curr_job["input_directory"] + '/' + file for file in input_files]
-        partioned = []
-        for i in range(0, num):
-            indx = i % num
-            tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
-            partioned.append(tasks)
-        self.tasks = partioned
+    def fault_localization(self):
+        time.sleep(10)
+        click.echo("Shutting down fault localization...")
  
 
 
