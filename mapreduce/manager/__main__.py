@@ -205,13 +205,14 @@ class Manager:
             elif not self.tasks:
                 self.prep_reduce(self.curr_job)
                 self.handle_partition_done = False
-                logging.info("Manager:%s end group stage", self.port_number)
+                #logging.info("Manager:%s end group stage", self.port_number)
         elif self.stages[0] == 'reduce':
-            if not self.handle_partition_done:
-                logging.info("Manager:%s begin reduce stage", self.port_number)
-                self.sort_dex = 1 #reset sortdex for reuse
-                self.handle_partioning(self.curr_job['num_reducers'])
-            self.reduce_stage(self.curr_job)
+            logging.info("Manager:%s end group stage", self.port_number)
+            #if not self.handle_partition_done:
+                #logging.info("Manager:%s begin reduce stage", self.port_number)
+                #self.sort_dex = 1 #reset sortdex for reuse
+                #self.handle_partioning(self.curr_job['num_reducers'])
+            #self.reduce_stage(self.curr_job)
             if not self.tasks:
                 logging.info("Manager:%s end reduce stage", self.port_number)
 
@@ -235,6 +236,7 @@ class Manager:
                             self.curr_job = self.jobs[0]
                             self.curr_job['job_id'] = self.job_ids
         if self.jobs:
+            logging.info("Tasks left: %s", self.tasks)
             logging.debug("Resuming job...")
             self.execute_job()
 
