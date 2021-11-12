@@ -83,18 +83,19 @@ class Worker:
             #go through each file in need_sorting and sort the file by line. Treat each line as a string. 
             for file in need_sorting:
                 Sorted_file = []
-                with open(file, 'r') as r:
+                with open(file, 'r') as r: 
                     lines = [line.replace('\n', '') for line in r]
                     Sorted_file = sorted(lines)
                 with open(file, "w") as w:
                     for line in Sorted_file:
-                        if not (line == Sorted_file[-1]):
-                            line += '\n'
+                        line += '\n'
+                        # if not (line == Sorted_file[-1]):
+                        #     line += '\n'
                         w.write(line)
             
             #TODO: use heaq to go through the files in need_sorting contents again
             # merge sorted files (***merging has not be checked***)
-
+            """DEBUG:root:Output file: tmp/job-0/grouper-output/sorted02"""
             with open(message_dict['output_file'], 'w') as writer:
                 for line in heapq.merge(*need_sorting):
                     writer.write(line)
@@ -229,6 +230,13 @@ class Worker:
                 "output_directory": message_dict['output_directory'],
                 "worker_pid": message_dict['worker_pid']
             }
+        elif message_dict['message_type'] == 'new_sort_task':
+            response = {
+                "message_type": "new_sort_task",
+                "input_files": message_dict['input_files'],
+                "output_file": message_dict['output_file'],
+                "worker_pid": message_dict['worker_pid']
+                }
         return response
 
 
