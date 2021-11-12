@@ -205,7 +205,7 @@ class Manager:
                 self.group_stage(self.curr_job)
             elif not self.tasks:
                 self.prep_reduce(self.curr_job)
-                self.sort_partition_done = False
+                self.handle_partition_done = False
                 logging.info("Manager:%s end group stage", self.port_number)
         elif self.stages[0] == 'reduce':
             if not self.handle_partition_done:
@@ -352,7 +352,7 @@ class Manager:
                 partitioned.append([file])
         self.tasks = partitioned
         logging.debug("Tasks in sort_partition: %s", self.tasks)
-        self.sort_partition_done = True
+        self.handle_partition_done = True
 
     def group_stage(self, curr_job):
         ### Only handles the sorting portion. 
