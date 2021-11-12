@@ -188,12 +188,11 @@ class Manager:
     def execute_job(self):
         # Begin/Resume Map-Reduce Phase:
         #self.curr_job is the response on new_manager_job. 
-        logging.info("Map-Reduction Starting...")
         if self.stages[0] == 'map':
             if not self.handle_partition_done:
                 logging.info("Manager:%s begin map stage", self.port_number)
                 self.handle_partioning(self.curr_job['num_mappers'])
-            logging.info("Tasks Left: %s", self.tasks)
+            # logging.info("Tasks Left: %s", self.tasks)
             self.map_stage(self.curr_job)
             if not self.tasks: self.handle_partition_done = False
         elif self.stages[0] == 'group':
@@ -209,9 +208,13 @@ class Manager:
                 logging.info("Manager:%s end group stage", self.port_number)
         elif self.stages[0] == 'reduce':
             if not self.handle_partition_done:
+                logging.info("Manager:%s begin reduce stage", self.port_number)
                 self.sort_dex = 1 #reset sortdex for reuse
                 self.handle_partioning(self.curr_job['num_reducers'])
             self.reduce_stage(self.curr_job)
+            if not self.tasks:
+                logging.info("Manager:%s end reduce stage", self.port_number)
+
 
     def resume_job(self):
         if not self.tasks:
@@ -307,11 +310,11 @@ class Manager:
 
     def map_stage(self, curr_job):
         for _ in range(len(self.tasks)): #was originally a for loop. I think while loop is correct. 
-            logging.info("tasks left %s ", str(len(self.tasks)))
+            # logging.info("tasks left %s ", str(len(self.tasks)))
             busy_count = 0
             for worker in self.workers:
                 if self.workers[worker]['status'] == 'ready': 
-                    logging.info("current job: " + str(curr_job['job_id']))
+                    # logging.info("current job: " + str(curr_job['job_id']))
                     job_id = 'job-' + str(curr_job['job_id']) + '/'
                     tmpPath = Path('tmp/')
                     response = {
@@ -329,7 +332,7 @@ class Manager:
                     logging.info("Worker %s is busy.", worker)
                     busy_count += 1
             if busy_count == len(self.workers):
-                logging.info("All workers busy!")
+                # logging.info("All workers busy!")
                 return None
 
     def sort_partition(self, curr_job):
@@ -338,7 +341,6 @@ class Manager:
         tmpPath = Path('tmp/')
         output_direc = Path(tmpPath / job_id / 'mapper-output/')
         map_files = [str(e) for e in output_direc.iterdir() if e.is_file()]
-
         #round robin the map_output into self.tasks for each worker.
         partitioned = []
         num_workers = len(self.workers)
@@ -383,7 +385,7 @@ class Manager:
                     logging.info("Worker %s is busy.", worker)
                     busy_count += 1
             if busy_count == len(self.workers):
-                logging.info("All workers busy!")
+                # logging.info("All workers busy!")
                 return None
     
     def prep_reduce(self, curr_job):
@@ -421,7 +423,6 @@ class Manager:
 
     def reduce_stage(self, curr_job):
         # TODO: Fix all paths for reduce!
-        logging.info("Manager:%s begin reduce stage", self.port_number)
         self.stages.pop(0)
         """
         for i in range(len(self.tasks)):
@@ -460,8 +461,6 @@ class Manager:
                     # Which is: [self.workers[worker]['task_number']]
                     #pass
         """
-        logging.info("Manager:%s end reduce stage", self.port_number)
-
     def fault_localization(self):
         time.sleep(10)
         click.echo("Shutting down fault localization...")
