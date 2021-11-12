@@ -193,25 +193,10 @@ class Manager:
         elif self.stages[0] == 'group':
             self.sort_partition(self.curr_job)
             self.group_stage(self.curr_job)                
-        elif self.tasks and self.stages[0] == 'reduce':
+        elif self.stages[0] == 'reduce':
             self.sort_dex = 1
             # self.handle_partioning(self.curr_job['num_reducers'])
             self.reduce_stage(self.curr_job)
-
-        """
-        else:
-            logging.info("Moving to grouping...")
-            if self.tasks and self.stages[0] == 'group':
-                # TODO: Grouping (N/A)
-                self.group_stage()
-            else:
-                # TODO: Reduction (N/A)
-                if self.tasks and self.stages[0] == 'reduce':
-                    self.reduce_stage()
-                if not self.handle_partition_done:
-                    self.handle_partioning(self.curr_job, self.curr_job['num_reducers'])
-                    logging.debug("Map-Reduction Complete")
-        """
         logging.info("Leaving Map-Reduce Phase (for now)")
 
     def resume_job(self):
@@ -469,29 +454,3 @@ logging.debug("Manager:%s, %s received\n%s",
 )
 logging.debug("IMPLEMENT ME!")
 """
-
-#Logic for implemented pop AFTER workers send "finish" status:
-                        #if self.workers[pid]['task_type'] == 'map':
-                            #for task in self.map_tasks:
-                                #if self.workers[pid]['task'] == self.map_tasks[task]:
-                                    #self.map_tasks.pop(task)
-                        #else:
-                            #self.reduce_tasks.pop(self.workers[pid]['task_number'])
-                        #logging.debug("Mapping Tasks Left: %s", self.map_tasks)
-
-
-#Old logic for partitioning:
-            #logging.debug("insertdx: %s", insertdx) 
-            #if not isinstance(partioned, list):
-            #file_path = curr_job['input_directory'] + '/' + str(file)
-            #partioned.append(str(file_path))
-
-            #if len(partioned) <= insertdx:
-                #partioned.insert(insertdx, str(file_path))
-            #else:
-                #prev = partioned[insertdx]
-                #partioned.pop(insertdx)
-                #partioned.insert(insertdx, file_path)
-                #new_partition = partioned[::insertdx]
-                #partioned.pop(insertdx)
-                #partioned.insert(insertdx, new_partition)
