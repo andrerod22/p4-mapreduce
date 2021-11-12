@@ -96,7 +96,8 @@ class Manager:
                     clientsocket, address = sock.accept()
                 except socket.timeout:
                     for worker in self.workers:
-                        if self.workers[worker]['status'] == 'ready': #and self.jobs and self.stages:
+                        if self.workers[worker]['status'] == 'ready':
+
                             self.resume_job()
                     continue
                 print("Connection from", address[0])
@@ -152,6 +153,8 @@ class Manager:
                         self.stages = ['map','group','reduce']
                         self.curr_job = self.jobs[0]
                         self.curr_job['job_id'] = self.job_ids
+                        self.handle_partioning(self.curr_job['num_mappers'])
+                        self.handle_partition_done = True
                         for worker in self.workers:
                             if self.workers[worker]['status'] == 'ready' and self.jobs:
                                 self.execute_job()
@@ -357,11 +360,12 @@ class Manager:
             busy_count = 0
             for worker in self.workers:
                 if self.workers[worker]['status'] == 'ready': 
-                    job_id = Path('job-' + str(curr_job['job_id'])) #+ '/'
+                    job_id = 'job-' + str(curr_job['job_id']) + '/'
                     #tmpPath = Path('tmp/')
                     sort_num = "0" + str(self.sort_dex) if self.sort_dex < 10 else str(self.sort_dex)
                     sort_path = "/sorted" + sort_num
-                    grouper_file_path = Path('tmp'/ job_id / 'grouper-output'/ sort_path) 
+                    #grouper_file_path = Path('tmp'/ job_id / 'grouper-output'/ sort_path)
+                    grouper_file_path = 'tmp/' + job_id + 'grouper-output' + sort_path
                     response = {
                         "message_type": "new_sort_task",
                         "input_files": self.tasks[0],
@@ -369,6 +373,7 @@ class Manager:
                         "worker_pid": self.workers[worker]['pid']
                     }
                     logging.debug("Response Output File: %s", response['output_file'])
+                    """DEBUG:root:Response Output File: /sorted02"""
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.tasks[0]
@@ -387,10 +392,10 @@ class Manager:
         grouper_folder = Path('tmp' / job_id / 'grouper-output/')
         extracted_file = []
         # Loop through all sorted files:
+        logging.debug("Grouper_Folder: %s", grouper_folder)
         for sorted_file in grouper_folder.glob('sorted*'):
             # Open file 
             with open(str(sorted_file), 'r') as s:
-
                 # Store file contents into list of list of strings
                 extracted_file = [line for line in s]
         
@@ -398,12 +403,12 @@ class Manager:
         #for line in extracted_file:
             #indx = line + 1 % curr_job['num_reducers']
             #Make index for each num_reducer
-        
+        #tmp/job-0/grouper-output/reduce01
             for i in range(0, curr_job['num_reducers']):
                 indx = i % curr_job['num_reducers']
                 extract_lines = [extracted_file[0][line] for line in extracted_file[0] if line % curr_job['num_reducers'] == indx]
                 #reduce_tasks.append(extract_lines)
-                with open("reduce" + indx + 1, 'a') as f:
+                with open(str(grouper_folder) + "reduce" + '0' + str(indx + 1), 'a') as f:
                     for words in extract_lines:
                         f.write(words)
 
@@ -418,6 +423,7 @@ class Manager:
         # TODO: Fix all paths for reduce!
         logging.info("Manager:%s begin reduce stage", self.port_number)
         self.stages.pop(0)
+        """
         for i in range(len(self.tasks)):
         # logging.info("On task: %s", i)
             busy_count = 0
@@ -453,6 +459,7 @@ class Manager:
                     # Might need the index for self.map_tasks
                     # Which is: [self.workers[worker]['task_number']]
                     #pass
+        """
         logging.info("Manager:%s end reduce stage", self.port_number)
 
     def fault_localization(self):

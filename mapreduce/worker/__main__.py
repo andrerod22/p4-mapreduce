@@ -95,10 +95,14 @@ class Worker:
             #TODO: use heaq to go through the files in need_sorting contents again
             # merge sorted files (***merging has not be checked***)
             """DEBUG:root:Output file: tmp/job-0/grouper-output/sorted02"""
+            open_files = []
+            for f in need_sorting:
+                open_files.append(open(f))
             with open(message_dict['output_file'], 'w') as writer:
-                for line in heapq.merge(*need_sorting):
+                for line in heapq.merge(*open_files):
                     writer.write(line)
-
+            for f in open_files:
+                f.close()
             sock.connect(("localhost", self.manager_tcp_port))
             message = json.dumps({
                 "message_type": "status",
