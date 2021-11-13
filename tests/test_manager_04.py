@@ -7,7 +7,7 @@ import filecmp
 import mapreduce
 import utils
 from utils import TESTDATA_DIR
-
+import pdb
 
 def worker_message_generator(mock_socket):
     """Fake Worker messages."""
@@ -19,7 +19,6 @@ def worker_message_generator(mock_socket):
         "worker_pid": 1001,
     }).encode('utf-8')
     yield None
-
     # User submits new job
     yield json.dumps({
         'message_type': 'new_manager_job',
@@ -147,7 +146,6 @@ def worker_message_generator(mock_socket):
         "worker_pid": 1001
     }).encode('utf-8')
     yield None
-
     # Wait for Manager to send sort job messages.  We expect two messages
     # because one is from the previous job 0.
     utils.wait_for_sort_messages(mock_socket, num=2)
@@ -222,6 +220,7 @@ def test_manager_04_multiple(mocker):
     # Pro-tip: show log messages and detailed diffs with
     #   $ pytest -vvs tests/test_manager_X.py
     messages = utils.get_messages(mock_socket)
+    #breakpoint()
     assert messages == [
         {
             "message_type": "register_ack",

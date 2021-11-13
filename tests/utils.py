@@ -8,7 +8,7 @@ import json
 import time
 import threading
 import socket
-
+import pdb
 
 # Temporary directory.  Tests will create files here.
 TMPDIR = pathlib.Path("tmp")
@@ -109,6 +109,7 @@ def is_register_message(message):
 
 def is_map_message(message):
     """Return True if message starts a map job."""
+    # breakpoint()
     return (
         "message_type" in message and
         message["message_type"] == "new_worker_task" and

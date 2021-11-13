@@ -43,10 +43,10 @@ def worker_message_generator(mock_socket, manager_log):
     # Wait for Manager to send one map message
     # WE KEEP RUNNING FOREVER HERE
     # TODO: FIND THIS BUG
-    # breakpoint()
+    #breakpoint()
     utils.wait_for_map_messages(mock_socket, num=1)
     #M: --> W
-
+    #breakpoint()
     # Status finished message from both mappers
     yield json.dumps({
         "message_type": "status",
@@ -125,7 +125,6 @@ def test_manager_02_map(mocker, caplog):
         utils.wait_for_threads()
     except SystemExit as error:
         assert error.code == 0
-    # breakpoint()
     # Verify first 3 messages sent by the manager
     #
     # Pro-tip: show log messages and detailed diffs with
