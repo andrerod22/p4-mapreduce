@@ -190,11 +190,9 @@ class Manager:
         #self.curr_job is the response on new_manager_job. 
         if self.stages[0] == 'map':
             if not self.handle_partition_done:
-                logging.info("Manager:%s begin map stage", self.port_number)
                 self.handle_partioning(self.curr_job['num_mappers'])
-            # logging.info("Tasks Left: %s", self.tasks)
             self.map_stage(self.curr_job)
-            if not self.tasks: self.handle_partition_done = False
+            #if not self.tasks: self.handle_partition_done = False
         elif self.stages[0] == 'group':
             if not self.handle_partition_done:
                 logging.info("Manager:%s end map stage", self.port_number)
@@ -202,12 +200,11 @@ class Manager:
                 self.sort_partition(self.curr_job)
             if self.tasks:
                 self.group_stage(self.curr_job)
-            elif not self.tasks:
-                self.prep_reduce(self.curr_job)
-                self.handle_partition_done = False
+                #self.handle_partition_done = False
                 #logging.info("Manager:%s end group stage", self.port_number)
         elif self.stages[0] == 'reduce':
             logging.info("Manager:%s end group stage", self.port_number)
+            self.prep_reduce(self.curr_job)
             #if not self.handle_partition_done:
                 #logging.info("Manager:%s begin reduce stage", self.port_number)
                 #self.sort_dex = 1 #reset sortdex for reuse
@@ -218,17 +215,24 @@ class Manager:
 
 
     def resume_job(self):
+        if self.stages:
+            logging.info("%s tasks left: %s", self.stages[0], self.tasks)
         if not self.tasks:
+            # Make sure all workers are ready before moving to next stage
+            ready_count = 0
+            for worker in self.workers:
+                if self.workers[worker]['status'] == 'ready':
+                    ready_count += 1
             # Check if any workers, died and reassign tasks:
             #if self.check_for_deaths():
                 #self.tasks.append(self.get_dead_tasks())
             #else:
-            if self.stages:
+            if self.stages and ready_count == len(self.workers):
                 logging.debug("Leaving: %s", self.stages[0])
                 self.stages.pop(0)
                 self.handle_partition_done = False
                 if not self.stages:
-                    # Job is done, check queue for next job:
+                    # Job is done, check queue for next jo:
                     logging.debug("Job is done!")
                     if self.jobs:
                         self.jobs.pop(0)
@@ -236,7 +240,6 @@ class Manager:
                             self.curr_job = self.jobs[0]
                             self.curr_job['job_id'] = self.job_ids
         if self.jobs:
-            logging.info("Tasks left: %s", self.tasks)
             logging.debug("Resuming job...")
             self.execute_job()
 
@@ -311,8 +314,7 @@ class Manager:
         self.tasks = partioned
 
     def map_stage(self, curr_job):
-        for _ in range(len(self.tasks)): #was originally a for loop. I think while loop is correct. 
-            # logging.info("tasks left %s ", str(len(self.tasks)))
+        for _ in range(len(self.tasks)):
             busy_count = 0
             for worker in self.workers:
                 if self.workers[worker]['status'] == 'ready': 
@@ -339,6 +341,7 @@ class Manager:
 
     def sort_partition(self, curr_job):
         #get list of input files, ex: "tmp/job-0/mapper-output/file01"
+        logging.info("Sorting...")
         job_id = 'job-' + str(curr_job['job_id']) + '/'
         tmpPath = Path('tmp/')
         output_direc = Path(tmpPath / job_id / 'mapper-output/')
@@ -360,6 +363,7 @@ class Manager:
 
     def group_stage(self, curr_job):
         ### Only handles the sorting portion. 
+        logging.info("Grouping....")
         for _ in range(len(self.tasks)):
             busy_count = 0
             for worker in self.workers:
@@ -376,51 +380,48 @@ class Manager:
                         "output_file": str(grouper_file_path),
                         "worker_pid": self.workers[worker]['pid']
                     }
-                    logging.debug("Response Output File: %s", response['output_file'])
-                    """DEBUG:root:Response Output File: /sorted02"""
                     self.send_tcp_worker(response, self.workers[worker]['port'])
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.tasks[0]
                     self.tasks.pop(0)
+                    logging.info("Tasks inside grouping: %s", self.tasks)
                     self.sort_dex += 1
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
                     busy_count += 1
             if busy_count == len(self.workers):
-                # logging.info("All workers busy!")
+                logging.info("All workers busy!")
                 return None
     
     def prep_reduce(self, curr_job):
+        logging.info("Generating reduce files...")
         # Get all important path info:
         job_id = Path('job-' + str(curr_job['job_id']))
         grouper_folder = Path('tmp' / job_id / 'grouper-output/')
         extracted_file = []
         # Loop through all sorted files:
-        logging.debug("Grouper_Folder: %s", grouper_folder)
+        logging.info("Grouper_Folder: %s", grouper_folder)
         for sorted_file in grouper_folder.glob('sorted*'):
-            # Open file 
+            # Open file
+            logging.info("Sorted File: %s", sorted_file)
             with open(str(sorted_file), 'r') as s:
                 # Store file contents into list of list of strings
                 extracted_file = [line for line in s]
-        
-        # Iterate through list
-        #for line in extracted_file:
-            #indx = line + 1 % curr_job['num_reducers']
-            #Make index for each num_reducer
-        #tmp/job-0/grouper-output/reduce01
+            
+            logging.debug("# of Reducers: %s", curr_job['num_reducers'])
+            extract_lines = []
             for i in range(0, curr_job['num_reducers']):
                 indx = i % curr_job['num_reducers']
-                extract_lines = [extracted_file[0][line] for line in extracted_file[0] if line % curr_job['num_reducers'] == indx]
-                #reduce_tasks.append(extract_lines)
-                with open(str(grouper_folder) + "reduce" + '0' + str(indx + 1), 'a') as f:
+                logging.info('Current reduce number: %s', indx + 1)
+                #logging.info("Extracted File: %s", extracted_file[0])
+                #extract_lines = [extracted_file[line] for line in range(0,len(extracted_file)) if line % curr_job['num_reducers'] == indx]
+                for line in range (0,len(extracted_file)):
+                    if line % curr_job['num_reducers'] == indx:
+                        extract_lines.append(extracted_file[line])
+                with open(str(grouper_folder) + "/reduce" + '0' + str(indx + 1), 'a') as f:
                     for words in extract_lines:
                         f.write(words)
-
-            #reduce_tasks = []
-            #Append Task if new
-            #Insert if element exists already
-
-
+                    #logging.debug("Writing for reduce0%s complete.", indx + 1)
 
 
     def reduce_stage(self, curr_job):
@@ -502,29 +503,3 @@ logging.debug("Manager:%s, %s received\n%s",
 )
 logging.debug("IMPLEMENT ME!")
 """
-
-#Logic for implemented pop AFTER workers send "finish" status:
-                        #if self.workers[pid]['task_type'] == 'map':
-                            #for task in self.map_tasks:
-                                #if self.workers[pid]['task'] == self.map_tasks[task]:
-                                    #self.map_tasks.pop(task)
-                        #else:
-                            #self.reduce_tasks.pop(self.workers[pid]['task_number'])
-                        #logging.debug("Mapping Tasks Left: %s", self.map_tasks)
-
-
-#Old logic for partitioning:
-            #logging.debug("insertdx: %s", insertdx) 
-            #if not isinstance(partioned, list):
-            #file_path = curr_job['input_directory'] + '/' + str(file)
-            #partioned.append(str(file_path))
-
-            #if len(partioned) <= insertdx:
-                #partioned.insert(insertdx, str(file_path))
-            #else:
-                #prev = partioned[insertdx]
-                #partioned.pop(insertdx)
-                #partioned.insert(insertdx, file_path)
-                #new_partition = partioned[::insertdx]
-                #partioned.pop(insertdx)
-                #partioned.insert(insertdx, new_partition)
