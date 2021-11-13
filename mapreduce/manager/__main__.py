@@ -47,7 +47,7 @@ class Manager:
         # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
         tcp_thread = Thread(target=self.listen_tcp_manager, args=())
-        # fault_thread = Thread(target=self.fault_localization args=(self,))
+        # fault_thread = Thread(target=self.fault_localization,args=())
         udp_thread.start()
         tcp_thread.start()
         # fault_thread.start()
@@ -75,6 +75,7 @@ class Manager:
                     message_dict = json.loads(message_str)
                 except (JSONDecodeError, TypeError):
                     continue
+        
         logging.debug("Manager:%s Shutting down...", self.port_number) 
 
 
@@ -107,7 +108,6 @@ class Manager:
                 # When the client closes the connection, recv() returns empty data,
                 # which breaks out of the loop.  We make a simplifying assumption that
                 # the client will always cleanly close the connection.
-                # BUG BUG BUG BUG BUG BUG BUG BUG IN HERE IN HERE IN HERE IN HERE
                 with clientsocket:
                     message_chunks = []
                     while True:
@@ -119,7 +119,6 @@ class Manager:
                         if not data:
                             break
                         message_chunks.append(data)
-                # BUG BUG BUG BUG BUG BUG BUG BUG IN HERE IN HERE IN HERE IN HERE
                 # Decode list-of-byte-strings to UTF8 and parse JSON data
                 message_bytes = b''.join(message_chunks)
                 message_str = message_bytes.decode("utf-8")
@@ -144,10 +143,9 @@ class Manager:
                         # Check if worker is finished first:
                         # continue
                     self.send_tcp_worker(response, response['worker_port'])
-                    # check if there is anywork for this worker to do.
+                    # check if there is any work for this worker to do. For manager_09
                     if self.tasks:
                         self.resume_job()
-
 
                 elif response['message_type'] == 'shutdown':
                     logging.debug("Shutting down workers: %s", self.workers) 
@@ -343,6 +341,8 @@ class Manager:
                 self.workers[worker]['task'] = self.tasks[0]
                 # If there is only one worker, we need to append all tasks in case it dies!
                 self.tasks.pop(0)
+            elif self.workers[worker]['status'] == 'dead':
+                self.tasks.append(self.workers[worker]['task'])
             elif self.workers[worker]['status'] == 'busy':
                 logging.info("Worker %s is busy.", worker)
                 busy_count += 1
@@ -444,6 +444,11 @@ class Manager:
         logging.info("TASKS in PREP-REDUCE: %s", self.tasks)
 
     def fault_localization(self):
+        #UDP SOCKET
+        #Determine if a worker is dead, and mark it as 'dead'.
+        #How do we determine if a worker is dead? It misses 5 pings or 10 seconds. 
+        #We could have an array of timers  
+
         time.sleep(10)
         click.echo("Shutting down fault localization...")
  
