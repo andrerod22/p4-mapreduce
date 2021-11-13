@@ -99,9 +99,8 @@ def worker_message_generator(mock_socket, memory_profiler, manager_log):
         "status": "finished",
         "worker_pid": 1002
     }).encode('utf-8')
-    #breakpoint() #BUG HERE
     yield None
-
+    
     # Wait for Manager to send reduce job message
     
     utils.wait_for_log(manager_log, "end group stage")
