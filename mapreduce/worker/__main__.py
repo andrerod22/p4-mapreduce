@@ -9,6 +9,7 @@ import pathlib
 from pathlib import Path
 import socket
 import subprocess
+import heapq
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -50,28 +51,22 @@ class Worker:
     def handle_msg(self, message_dict):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             logging.info("input: %s, output: %s, executable: %s", message_dict['input_files'], message_dict['output_directory'], message_dict['executable'])
-            #outFileName = fileInput.replace("tests/testdata/input_small/", "")
             fileInput = message_dict["input_files"]
             output_files = []
             for file in fileInput:
                 file_input_path = Path(file)
                 file_name = str(file.split('/')[-1])
-                logging.info("file_name: %s", file_name)
-                #file_output_path =  # + outFileName
                 file_output_path = Path(message_dict["output_directory"]) / file_name
                 output_files.append(str(file_output_path))
-                #with open(file_input_path, 'r') as inFile, (file_output_path, 'w') as out_file:
-                #input_obj = open(file_input_path, 'r')
+
                 #TODO FINISH THIS: CURRENTLY EXITING WITH 1 NOT SUCESSFUL
                 #p1 = subprocess.run(['cat', str(file_input_path)], capture_output=True, text=True)
-                
                 with open(str(file_input_path), 'r') as i, open(str(file_output_path), 'w') as f:
                     subprocess.run([message_dict["executable"], str(file_input_path)], stdin=i, stdout=f, text=True, check=True)
                 #input_obj.close()
             # Connect to the server
             sock.connect(("localhost", self.manager_tcp_port))
             #out_file_string = "[ " + file_output + " ]"
-            # Send registration
             message = json.dumps({
                 "message_type": "status",
                 "output_files" : output_files,
@@ -80,20 +75,44 @@ class Worker:
                 })
             sock.sendall(message.encode('utf-8'))
 
-    def handle_grouping(self, message_dict):
+    #For Grouping, input is files, output is one larger file. 
+    def handle_sort(self, message_dict):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            # Connect to the server
+            need_sorting = message_dict['input_files']
+            #go through each file in need_sorting and sort the file by line. Treat each line as a string. 
+            for file in need_sorting:
+                Sorted_file = []
+                with open(file, 'r') as r: 
+                    lines = [line.replace('\n', '') for line in r]
+                    Sorted_file = sorted(lines)
+                with open(file, "w") as w:
+                    for line in Sorted_file:
+                        line += '\n'
+                        # if not (line == Sorted_file[-1]):
+                        #     line += '\n'
+                        w.write(line)
+            
+            #TODO: use heaq to go through the files in need_sorting contents again
+            # merge sorted files (***merging has not be checked***)
+            """DEBUG:root:Output file: tmp/job-0/grouper-output/sorted02"""
+            open_files = []
+            for f in need_sorting:
+                open_files.append(open(f))
+            with open(message_dict['output_file'], 'w') as writer:
+                for line in heapq.merge(*open_files):
+                    writer.write(line)
+            for f in open_files:
+                f.close()
             sock.connect(("localhost", self.manager_tcp_port))
-
-            # Send registration
             message = json.dumps({
                 "message_type": "status",
-                "output_file" : "",
+                "output_file" : message_dict['output_file'],
                 "status": "finished",
                 "worker_pid": self.worker_id
                 })
             sock.sendall(message.encode('utf-8'))
 
+    """
     def handle_reduce(self, message_dict):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Connect to the server
@@ -107,7 +126,7 @@ class Worker:
                 "worker_pid": self.worker_id
                 })
             sock.sendall(message.encode('utf-8'))
-
+    """
     def listen_tcp_worker(self):
         udp_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
@@ -171,6 +190,8 @@ class Worker:
                     break
                 elif response['message_type'] == 'new_worker_task':
                     self.handle_msg(response)
+                elif response['message_type'] == 'new_sort_task':
+                    self.handle_sort(response)
 
                 else:
                     logging.debug("Worker:%s received %s", self.worker_port, message_dict)
@@ -213,6 +234,13 @@ class Worker:
                 "output_directory": message_dict['output_directory'],
                 "worker_pid": message_dict['worker_pid']
             }
+        elif message_dict['message_type'] == 'new_sort_task':
+            response = {
+                "message_type": "new_sort_task",
+                "input_files": message_dict['input_files'],
+                "output_file": message_dict['output_file'],
+                "worker_pid": message_dict['worker_pid']
+                }
         return response
 
 

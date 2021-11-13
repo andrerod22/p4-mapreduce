@@ -11,6 +11,7 @@ import threading
 import logging
 import mapreduce
 import utils
+import pdb
 from utils import TESTDATA_DIR
 
 
@@ -99,8 +100,9 @@ def worker_message_generator(mock_socket, memory_profiler, manager_log):
         "worker_pid": 1002
     }).encode('utf-8')
     yield None
-
+    
     # Wait for Manager to send reduce job message
+    
     utils.wait_for_log(manager_log, "end group stage")
 
     # Verify group stage memory usage.  We need to check here because the only
