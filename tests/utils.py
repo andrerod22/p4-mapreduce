@@ -192,6 +192,8 @@ def wait_for_messages(function, mock_socket, num=1):
 
 def wait_for_messages_async(function, mock_socket, num=1):
     """Yield every 1s, return when function()==True on num messages."""
+    # if num == 2:
+    #     breakpoint()
     for _ in range(TIMEOUT_LONG):
         messages = get_messages(mock_socket)
         n_true_messages = sum(function(m) for m in messages)

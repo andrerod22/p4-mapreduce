@@ -51,7 +51,6 @@ def worker_message_generator(mock_socket):
         "worker_pid": 1002,
     }).encode('utf-8')
     yield None
-
     # Wait for Manager to assign 2nd map message
     # BUG: BUG BUG BUG BUG BUG HERE
     #breakpoint()

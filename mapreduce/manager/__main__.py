@@ -144,6 +144,9 @@ class Manager:
                         # Check if worker is finished first:
                         # continue
                     self.send_tcp_worker(response, response['worker_port'])
+                    # check if there is anywork for this worker to do.
+                    if self.tasks:
+                        self.resume_job()
 
 
                 elif response['message_type'] == 'shutdown':
@@ -316,37 +319,36 @@ class Manager:
             tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
             partioned.append(tasks)
         self.tasks = partioned
+        # logging.info("MAP TASKS GIVEN: %s and num_mapper: %s", self.tasks, num)
 
     def mapreduce_stage(self, curr_job, stage):
-        #for _ in range(len(self.tasks)):
-        while self.tasks:
-            busy_count = 0
-            for worker in self.workers:
-                if self.tasks and self.workers[worker]['status'] == 'ready': 
-                    # logging.info("current job: " + str(curr_job['job_id']))
-                    job_id = 'job-' + str(curr_job['job_id']) + '/'
-                    tmpPath = Path('tmp/')
-                    output_folder = stage + '-output/'
-                    
-                    response = {
-                        "message_type": "new_worker_task",
-                        "input_files": self.tasks[0],
-                        "executable": curr_job[stage + '_executable'],
-                        "output_directory": str(Path(tmpPath / job_id / output_folder)),
-                        "worker_pid": self.workers[worker]['pid']
-                    }
-                    #logging.info("OUTPUT_DIRECTORY IN MAPREDUCE STAGE: %s", str(Path(tmpPath / job_id / output_folder)))
-                    self.send_tcp_worker(response, self.workers[worker]['port'])
-                    self.workers[worker]['status'] = 'busy' #if len(self.workers) > 1 else 'ready' 
-                    self.workers[worker]['task'] = self.tasks[0]
-                    # If there is only one worker, we need to append all tasks in case it dies!
-                    self.tasks.pop(0)
-                elif self.workers[worker]['status'] == 'busy':
-                    # logging.info("Worker %s is busy.", worker)
-                    busy_count += 1
-            if busy_count == len(self.workers):
-                # logging.info("All workers busy!")
-                return None
+        busy_count = 0
+        for worker in self.workers:
+            if self.tasks and self.workers[worker]['status'] == 'ready': 
+                # logging.info("current job: " + str(curr_job['job_id']))
+                job_id = 'job-' + str(curr_job['job_id']) + '/'
+                tmpPath = Path('tmp/')
+                output_folder = stage + '-output/'
+                
+                response = {
+                    "message_type": "new_worker_task",
+                    "input_files": self.tasks[0],
+                    "executable": curr_job[stage + '_executable'],
+                    "output_directory": str(Path(tmpPath / job_id / output_folder)),
+                    "worker_pid": self.workers[worker]['pid']
+                }
+                #logging.info("OUTPUT_DIRECTORY IN MAPREDUCE STAGE: %s", str(Path(tmpPath / job_id / output_folder)))
+                self.send_tcp_worker(response, self.workers[worker]['port'])
+                self.workers[worker]['status'] = 'busy' #if len(self.workers) > 1 else 'ready' 
+                self.workers[worker]['task'] = self.tasks[0]
+                # If there is only one worker, we need to append all tasks in case it dies!
+                self.tasks.pop(0)
+            elif self.workers[worker]['status'] == 'busy':
+                logging.info("Worker %s is busy.", worker)
+                busy_count += 1
+        if busy_count == len(self.workers):
+            logging.info("All workers currently busy!")
+            return None
 
     def sort_partition(self, curr_job):
         #get list of input files, ex: "tmp/job-0/mapper-output/file01"
