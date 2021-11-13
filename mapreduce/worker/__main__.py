@@ -22,8 +22,8 @@ class Worker:
         self.manager_hb_port = manager_hb_port
         self.worker_port = worker_port
         self.status = 'ready'
-        logging.info("Starting worker:%s PID: %s", worker_port, self.worker_id)
-        logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
+        # logging.info("Starting worker:%s PID: %s", worker_port, self.worker_id)
+        # logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
         tcp_thread = Thread(target=self.listen_tcp_worker, args=())
         tcp_thread.start()
 
@@ -175,10 +175,10 @@ class Worker:
                 except json.JSONDecodeError:
                     continue
                 response = self.generate_response(message_dict)
-                logging.info("Worker:%s received %s", self.worker_port, response)
+                #logging.info("Worker:%s received %s", self.worker_port, response)
                 if response['message_type'] == 'register_ack':
                     # Spawn a UDP thread and call the send_heartbeat funct:
-                    logging.info("Worker:%s forwarding %s", self.worker_port, response)
+                    #logging.info("Worker:%s forwarding %s", self.worker_port, response)
                     udp_thread = Thread(target=self.scream_udp_socket, args=())
                     udp_thread.start()
                 if response['message_type'] == 'shutdown':
@@ -217,7 +217,7 @@ class Worker:
 
     def generate_response(self, message_dict):
         response = None
-        logging.info("Worker: %s Received message: %s", self.worker_port, message_dict)
+        #logging.info("Worker: %s Received message: %s", self.worker_port, message_dict)
         if message_dict['message_type'] == 'register_ack':
             response = {
                 "message_type" : "register_ack"

@@ -5,7 +5,7 @@ import distutils.dir_util
 import mapreduce
 import utils
 from utils import TESTDATA_DIR
-
+import pdb
 
 def worker_message_generator(mock_socket):
     """Fake Worker messages."""
@@ -40,6 +40,7 @@ def worker_message_generator(mock_socket):
     )
 
     # Wait for Manager to send one map message
+    #breakpoint()
     utils.wait_for_map_messages(mock_socket, num=1)
 
     # Second worker register's mid map stage
@@ -52,8 +53,11 @@ def worker_message_generator(mock_socket):
     yield None
 
     # Wait for Manager to assign 2nd map message
+    # BUG: BUG BUG BUG BUG BUG HERE
+    #breakpoint()
     utils.wait_for_map_messages(mock_socket, num=2)
-
+    #breakpoint()
+    # BUG BUG BUG BUG BUG BUG BUG HERE
     # Status finished message from first worker
     yield json.dumps({
         "message_type": "status",
@@ -81,7 +85,7 @@ def worker_message_generator(mock_socket):
         "worker_pid": 1002
     }).encode('utf-8')
     yield None
-
+    breakpoint()
     utils.wait_for_sort_messages(mock_socket, num=2)
 
     # Shutdown
