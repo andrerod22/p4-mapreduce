@@ -84,7 +84,7 @@ def worker_message_generator(mock_socket):
         "worker_pid": 1002
     }).encode('utf-8')
     yield None
-    breakpoint()
+    # breakpoint()
     utils.wait_for_sort_messages(mock_socket, num=2)
 
     # Shutdown
