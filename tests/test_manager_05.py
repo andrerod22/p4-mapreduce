@@ -7,7 +7,7 @@ import filecmp
 import utils
 from utils import TESTDATA_DIR
 import mapreduce
-
+import pdb
 
 def worker_message_generator(mock_socket):
     """Fake Worker messages."""
@@ -75,11 +75,10 @@ def worker_message_generator(mock_socket):
     #
     # Transfer control back to solution under test in between each check for
     # map messages.
-    # BUG HERE
     # breakpoint()
     for _ in utils.wait_for_map_messages_async(mock_socket, num=3):
         yield None
-    # BUG BUG BUG 
+    # breakpoint()
     # Status finished messages from one mapper.  This Worker was reassigned the
     # task that the dead worker failed to complete.
     yield json.dumps({
@@ -96,9 +95,9 @@ def worker_message_generator(mock_socket):
     yield None
 
     # Wait for Manager to send sort job messages
-    # breakpoint()
+    #breakpoint()
     utils.wait_for_sort_messages(mock_socket)
-
+    # # breakpoint()
     # Sort job status finished
     yield json.dumps({
         "message_type": "status",
@@ -109,9 +108,9 @@ def worker_message_generator(mock_socket):
     yield None
 
     # Wait for Manager to send reduce job message
-    # breakpoint()
+    #breakpoint()
     utils.wait_for_reduce_messages(mock_socket)
-
+    breakpoint()
     # Reduce job status finished
     yield json.dumps({
         "message_type": "status",
