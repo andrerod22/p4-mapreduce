@@ -22,8 +22,8 @@ class Worker:
         self.manager_hb_port = manager_hb_port
         self.worker_port = worker_port
         self.status = 'ready'
-        # logging.info("Starting worker:%s PID: %s", worker_port, self.worker_id)
-        # logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
+        logging.info("Starting worker:%s PID: %s", worker_port, self.worker_id)
+        logging.info("Worker:%s PWD %s", worker_port, os.getcwd())
         tcp_thread = Thread(target=self.listen_tcp_worker, args=())
         tcp_thread.start()
 
@@ -58,15 +58,11 @@ class Worker:
                 file_name = str(file.split('/')[-1])
                 file_output_path = Path(message_dict["output_directory"]) / file_name
                 output_files.append(str(file_output_path))
-
-                #TODO FINISH THIS: CURRENTLY EXITING WITH 1 NOT SUCESSFUL
-                #p1 = subprocess.run(['cat', str(file_input_path)], capture_output=True, text=True)
                 with open(str(file_input_path), 'r') as i, open(str(file_output_path), 'w') as f:
                     subprocess.run([message_dict["executable"], str(file_input_path)], stdin=i, stdout=f, text=True, check=True, shell=True)
-                #input_obj.close()
+
             # Connect to the server
             sock.connect(("localhost", self.manager_tcp_port))
-            #out_file_string = "[ " + file_output + " ]"
             message = json.dumps({
                 "message_type": "status",
                 "output_files" : output_files,
@@ -75,11 +71,12 @@ class Worker:
                 })
             sock.sendall(message.encode('utf-8'))
 
-    #For Grouping, input is files, output is one larger file. 
+
     def handle_sort(self, message_dict):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             need_sorting = message_dict['input_files']
-            #go through each file in need_sorting and sort the file by line. Treat each line as a string. 
+            # go through each file in need_sorting and sort the file by line. 
+            # Treat each line as a string. 
             for file in need_sorting:
                 Sorted_file = []
                 with open(file, 'r') as r: 
@@ -92,9 +89,6 @@ class Worker:
                         #     line += '\n'
                         w.write(line)
             
-            #TODO: use heaq to go through the files in need_sorting contents again
-            # merge sorted files (***merging has not be checked***)
-            """DEBUG:root:Output file: tmp/job-0/grouper-output/sorted02"""
             open_files = []
             for f in need_sorting:
                 open_files.append(open(f))
@@ -180,7 +174,6 @@ class Worker:
 
                 else:
                     logging.debug("Worker:%s received %s", self.worker_port, message_dict)
-                # Send response
         logging.debug("Worker:%s Shutting down...", self.worker_port)
 
 
