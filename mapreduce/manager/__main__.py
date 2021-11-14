@@ -1,3 +1,4 @@
+"""Handle all manager machine operations with multi-threading."""
 import os
 import logging
 import json
@@ -17,7 +18,10 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 class Manager:
+    """Multi-threaded Manager class with 3 main types of threads."""
+
     def __init__(self, port_number, hb_port_number):
+        """Initialize all necessary member variables."""
         logging.info("Starting manager:%s, %s", port_number, hb_port_number)
         logging.info("Manager:%s, %s PWD %s",
                      port_number, hb_port_number, os.getcwd())
@@ -58,7 +62,7 @@ class Manager:
 
     # Thread Specific Functions
     def listen_udp_socket(self):
-        # Create UDP Socket for UDP thread:
+        """Create UDP Socket to listen for Heartbeats."""
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("localhost", self.hb_port_number))
@@ -86,7 +90,7 @@ class Manager:
         logging.debug("Manager:%s Shutting down...", self.port_number)
 
     def listen_tcp_manager(self):
-        # Create an INET, STREAMing socket, this is TCP
+        """Listen on TCP to messages workers send."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -171,6 +175,7 @@ class Manager:
             logging.debug("Manager:%s Shutting down...", self.port_number)
 
     def make_job(self):
+        """Create the directories needed for a job."""
         new_job = 'job-' + str(self.job_ids) + '/'
         folders = (
             Path(self.tmp_folder / new_job),
@@ -182,6 +187,7 @@ class Manager:
             Path.mkdir(folder, parents=True)
 
     def remove_jobs(self, path):
+        """Remove directories used for a job."""
         path = Path(path)
         for item in path.glob('*'):
             if item.is_file():
@@ -191,6 +197,7 @@ class Manager:
         path.rmdir()
 
     def execute_job(self):
+        """Execute stages in order for a single job."""
         if self.stages[0] == 'map':
             if not self.handle_partition_done:
                 self.handle_partioning(self.curr_job['num_mappers'])
@@ -212,6 +219,7 @@ class Manager:
                 logging.info("Manager:%s end reduce stage", self.port_number)
 
     def resume_job(self):
+        """Resume the stage if the current stage isn't finished."""
         ready_count = 0
         busy_worker = False
         for worker in self.workers:
@@ -243,6 +251,7 @@ class Manager:
             self.execute_job()
 
     def send_tcp_worker(self, response, worker_port):
+        """Send a message via TCP to a worker."""
         # create an INET, STREAMing socket, this is TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # connect to the server
@@ -254,6 +263,7 @@ class Manager:
                          self.port_number, response, worker_port)
 
     def generate_response(self, message_dict):
+        """Convert worker response to something usable for manager."""
         response = None
         if message_dict['message_type'] == 'shutdown':
             response = {
@@ -296,6 +306,7 @@ class Manager:
         return response
 
     def handle_partioning(self, num):
+        """Partitions tasks for map and reduce stage."""
         self.handle_partition_done = True
         input_dir = self.curr_job["input_directory"]
         # https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
@@ -317,6 +328,7 @@ class Manager:
         self.tasks = partioned
 
     def mapreduce_stage(self, curr_job, stage):
+        """Handle Map and Reduce Stage without distinction."""
         for worker in sorted(self.workers):
             if self.tasks and self.workers[worker]['status'] == 'ready':
                 job_id = 'job-' + str(curr_job['job_id']) + '/'
@@ -340,6 +352,7 @@ class Manager:
                 logging.info("Worker %s is busy.", worker)
 
     def sort_partition(self, curr_job):
+        """Handle partition for sorting portion of Group Stage."""
         live_workers = 0
         for worker in self.workers:
             if self.workers[worker]['status'] != 'dead':
@@ -367,6 +380,7 @@ class Manager:
         self.handle_partition_done = True
 
     def group_stage(self, curr_job):
+        """Handle Group Stage after Map Stage."""
         for _ in range(len(self.tasks)):
             for worker in sorted(self.workers):
                 if self.tasks and self.workers[worker]['status'] == 'ready':
@@ -394,6 +408,7 @@ class Manager:
                     logging.info("Worker %s is busy.", worker)
 
     def prep_reduce(self, curr_job):
+        """Create reduce files to get ready for reduce stage."""
         self.handle_partition_done = True
         job_id = Path('job-' + str(curr_job['job_id']))
         grouper_folder = Path('tmp' / job_id / 'grouper-output/')
@@ -428,6 +443,7 @@ class Manager:
         self.tasks = [reduce_files]
 
     def fault_localization(self):
+        """Fault thread used to count down timer for workers and more."""
         keyErr = False
         while True:
             if not self.alive:
@@ -451,7 +467,7 @@ class Manager:
         # click.echo("Shutting down fault localization...")
 
     def generate_output(self):
-        # Copy All Files From Src to Dest:
+        """Generate the output files at the end of a job."""
         job_id = Path('job-' + str(self.curr_job['job_id']))
         reducer_folder = Path('tmp' / job_id / 'reducer-output/')
         for reduce in reducer_folder.glob('*'):
@@ -478,6 +494,7 @@ class Manager:
             reduce.unlink()
 
     def handle_deaths(self):
+        """Redistribute tasks assigned to a dead worker."""
         alive = 0
         for worker in self.workers:
             if self.workers[worker]['status'] == 'dead':
@@ -493,7 +510,7 @@ class Manager:
 @click.argument("port_number", nargs=1, type=int)
 @click.argument("hb_port_number", nargs=1, type=int)
 def main(port_number, hb_port_number):
-    # Init the Manager (Constructor)
+    """Initialize Constructor and begin work."""
     Manager(port_number, hb_port_number)
     # Main Manager Thread Ending
     click.echo("Shutting down manager...")
