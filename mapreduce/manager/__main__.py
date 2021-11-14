@@ -32,11 +32,9 @@ class Manager:
         self.jobs = []
         self.tasks = []
         self.block_tcp = False
-        self.sort_dex = 1 # Used for keeping track of sort file index, ex: sorted01, sorted02...
-        #self.pending_responses = []
+        self.sort_dex = 1 
         cwd = Path.cwd()
         # Make future dictionary for all bools
-        #tmp_folder = Path(cwd / 'mapreduce' / 'manager' / 'tmp/')
         tmp_folder = Path(cwd / 'tmp/')
         try: Path.mkdir(tmp_folder, parents=True)
         except(FileExistsError):
@@ -58,7 +56,6 @@ class Manager:
     
     # Thread Specific Functions
     def listen_udp_socket(self):
-        # TODO DECLARE DEAD WORKER IF MORE THAN 5 PINGS, meaning it doesn't send 5 heartbeats (10s). 
         # Create UDP Socket for UDP thread:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -76,9 +73,6 @@ class Manager:
                     message_dict = json.loads(message_str)
                 except (JSONDecodeError, TypeError):
                     continue
-                #if we receive a heartbeat restore the timer. 
-                #Does fault localization mark as dead before checking if its dead here?
-                
                 try: 
                     if self.workers[message_dict['worker_pid']]['status'] != 'dead':
                         # logging.info("Worker INFO: %s", message_dict)
@@ -102,16 +96,12 @@ class Manager:
             sock.listen()
             sock.settimeout(1)
             while True:
-                #logging.info("Listening...")
                 try:
                     clientsocket, address = sock.accept()
                 except socket.timeout:
-                    #logging.info("timeout")
                     for worker in self.workers:
                         if self.workers[worker]['status'] == 'ready':
-                            #logging.info("Resuming Job...")
                             if not self.block_tcp:
-                                logging.info("No new messages, checking for jobs")
                                 self.resume_job()
                     continue
                 print("Connection from", address[0])
@@ -139,7 +129,6 @@ class Manager:
                 try:
                     message_dict = json.loads(message_str)
                 except json.JSONDecodeError:
-                    # logging.info("JSON ERROR")
                     continue
                 logging.info("Manager:%s received %s", self.port_number, message_dict)
                 if message_dict['message_type'] == 'status':
@@ -154,7 +143,6 @@ class Manager:
 
                 if response['message_type'] == 'register_ack':
                     self.send_tcp_worker(response, response['worker_port'])
-                    #sorted(self.workers)
                     # check if there is any work for this worker to do. For manager_09
                     if self.tasks and not self.block_tcp:
                         self.resume_job()
@@ -170,13 +158,11 @@ class Manager:
                     logging.info("Manager:%s new job number %s", self.port_number, self.job_ids)
                     self.jobs.append(response)
                     if response == self.jobs[0]:
-                        # logging.info("New job in progress..")
                         self.stages = ['map','group','reduce']
                         self.curr_job = self.jobs[0]
                         self.curr_job['job_id'] = self.job_ids
                         self.handle_partioning(self.curr_job['num_mappers'])
                         self.handle_partition_done = True
-                        # ready_count = 0
                         for worker in self.workers:
                             if self.workers[worker]['status'] == 'ready' and self.jobs and not self.block_tcp:
                                 self.execute_job()
@@ -209,7 +195,6 @@ class Manager:
         path.rmdir()
 
     def execute_job(self):
-        #logging.info("EXECUTING JOB...")
         if self.stages[0] == 'map':
             if not self.handle_partition_done:
                 self.handle_partioning(self.curr_job['num_mappers'])
@@ -229,45 +214,36 @@ class Manager:
             self.mapreduce_stage(self.curr_job, 'reducer')
             if not self.tasks:
                 logging.info("Manager:%s end reduce stage", self.port_number)
-        #logging.info("LEAVING EXECUTE...")
 
     def resume_job(self):
-        # logging.info("RESUMING JOB...")
-        # logging.info("TASKS LEFT: %s", self.tasks)
         ready_count = 0
-        busy_worker = False # a busy worker should not enter that 
+        busy_worker = False 
         for worker in self.workers:
             if self.workers[worker]['status'] == 'ready':
                 ready_count += 1
             elif self.workers[worker]['status'] == 'busy':
                 busy_worker = True
-        # logging.info("Workers Ready: %s", ready_count)
-        # logging.info("Busy Worker: %s", busy_worker)
         if not self.tasks and not busy_worker:
-            #logging.info("HANDLING POSSIBLE DEATHS...")
             # Make sure all workers are ready before moving to next stage
             # Check if any workers, died and reassign tasks:
             alive_count = self.handle_deaths()
-            # logging.info("WORKERS ALIVE: %s", alive_count)
-            # logging.info("TASKS LEFT %s", len(self.tasks))
             if self.stages and ready_count == alive_count and not self.tasks:
                 logging.info("Leaving: %s", self.stages[0])
                 self.stages.pop(0)
                 self.handle_partition_done = False
                 if not self.stages:
                     # Job is done, check queue for next job:
-                    logging.debug("Job is done!")
+                    # logging.debug("Job is done!")
                     self.generate_output()
                     if self.jobs:
                         prev_job = self.jobs.pop(0)
                         if self.jobs:
                             self.stages = ['map','group','reduce'] 
                             self.curr_job = self.jobs[0]
-                            #logging.info("JOB_ID IN RESUME_JOB:")
                             self.curr_job['job_id'] = prev_job['job_id'] + 1
                             self.sort_dex = 1
         if self.jobs:
-            logging.debug("Resuming job...")
+            # logging.debug("Resuming job...")
             self.execute_job()
 
     def send_tcp_worker(self, response, worker_port):
@@ -278,7 +254,6 @@ class Manager:
             # send a message
             message = json.dumps(response)
             sock.sendall(message.encode('utf-8'))
-            #if len(self.workers) != 2:
             logging.info("Manager:%s sent %s to %s", self.port_number, response, worker_port)
 
     def generate_response(self, message_dict):
@@ -316,13 +291,12 @@ class Manager:
                 "full_output_directory": "tmp/job-{}/mapper-output".format(self.job_ids) if message_dict['output_directory'] == 'output' else None
             }
         elif message_dict['message_type'] == 'status':
-        # TODO: Implement the resposne for status (will look similar to new job)
             response = {
                 'message_type' : 'status'
             }
         return response
 
-    def handle_partioning(self, num): #num is num_mapper
+    def handle_partioning(self, num):
         self.handle_partition_done = True
         input_dir = self.curr_job["input_directory"]
         # https://thispointer.com/python-get-list-of-files-in-directory-sorted-by-name/
@@ -335,13 +309,10 @@ class Manager:
             tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
             partioned.append(tasks)
         self.tasks = partioned
-        #logging.info("MAP TASKS GIVEN: %s and num_mapper: %s", self.tasks, num)
 
     def mapreduce_stage(self, curr_job, stage):
-        #logging.info("WORKERS: %s", self.workers)
         for worker in sorted(self.workers):
             if self.tasks and self.workers[worker]['status'] == 'ready': 
-                # logging.info("current job: " + str(curr_job['job_id']))
                 job_id = 'job-' + str(curr_job['job_id']) + '/'
                 tmpPath = Path('tmp/')
                 output_folder = stage + '-output/'
@@ -374,31 +345,27 @@ class Manager:
         map_files = sorted(map_files)
         logging.info("MAP FILES: %s", map_files)
         partitioned = []
-        #logging.info("Live workers: %s, Total Workers: %s",live_workers, len(self.workers))
-        num_workers = live_workers # len(self.workers)
-        if len(map_files) >= num_workers: # If the number of files is greater than the number of workers. 
+        num_workers = live_workers
+        # If the number of files is greater than the number of workers. 
+        if len(map_files) >= num_workers: 
             for i in range(0, num_workers):
                 indx = i % num_workers
                 tasks = [map_files[x] for x in range(len(map_files)) if x % num_workers == indx]
                 partitioned.append(tasks)
-        else: #if number of workers is more than number of files. 
+        else: # if number of workers is more than number of files. 
             for file in map_files:
                 partitioned.append([file])
         self.tasks = partitioned
         self.handle_partition_done = True
 
     def group_stage(self, curr_job):
-        ### Only handles the sorting portion. 
-        # logging.info("Grouping....")
+        # Only handles the sorting portion. 
         for _ in range(len(self.tasks)):
-            # busy_count = 0
             for worker in sorted(self.workers):
                 if self.tasks and self.workers[worker]['status'] == 'ready': 
                     job_id = 'job-' + str(curr_job['job_id']) + '/'
-                    #tmpPath = Path('tmp/')
                     sort_num = "0" + str(self.sort_dex) if self.sort_dex < 10 else str(self.sort_dex)
                     sort_path = "/sorted" + sort_num
-                    #grouper_file_path = Path('tmp'/ job_id / 'grouper-output'/ sort_path)
                     grouper_file_path = 'tmp/' + job_id + 'grouper-output' + sort_path
                     response = {
                         "message_type": "new_sort_task",
@@ -417,7 +384,6 @@ class Manager:
     
     def prep_reduce(self, curr_job):
         self.handle_partition_done = True
-        # logging.info("Generating reduce files...")
         job_id = Path('job-' + str(curr_job['job_id']))
         grouper_folder = Path('tmp' / job_id / 'grouper-output/')
         sorted_files = [str(e) for e in grouper_folder.iterdir() if e.is_file()]
@@ -447,19 +413,16 @@ class Manager:
         for f in open_files:
             f.close()
         self.tasks = [reduce_files]
-        logging.info("TASKS in PREP-REDUCE: %s", self.tasks)
 
     def fault_localization(self):
-        #UDP SOCKET
-        #Determine if a worker is dead, and mark it as 'dead'.
-        #How do we determine if a worker is dead? It misses 5 pings or 10 seconds. 
-        #We could have an array of timers  
+        # UDP SOCKET
+        # Determine if a worker is dead, and mark it as 'dead'.
+        # How do we determine if a worker is dead? It misses 5 pings or 10 seconds. 
+        # We could have an array of timers  
         keyErr = False
-        # logging.info("WHERE IN FAULT LOCALIZATION!")
         while True:
             if not self.alive: break
             for worker in self.workers:
-                #logging.info("Worker: %s", self.workers[worker])
                 try: 
                     if self.workers[worker]['status'] != 'dead':
                         self.workers[worker]['timer'] -= 1
@@ -468,50 +431,35 @@ class Manager:
                         self.block_tcp = True
                         self.resume_job()
                         self.block_tcp = False
-                    #logging.info("Worker: %s, time: %s status: %s", self.workers[worker]['pid'], self.workers[worker]['timer'], self.workers[worker]['status'])
                 except KeyError:
                     keyErr = True
-                    logging.info("KEY ERROR in fault!")
                     break
             if not keyErr: 
-                #logging.info("sleeping...") 
                 time.sleep(1)
             keyErr = False
-        click.echo("Shutting down fault localization...")
+        # click.echo("Shutting down fault localization...")
  
     def generate_output(self):
         # Copy All Files From Src to Dest:
-        logging.info("Moving reduce files....")
         job_id = Path('job-' + str(self.curr_job['job_id']))
         reducer_folder = Path('tmp' / job_id / 'reducer-output/')
         for reduce in reducer_folder.glob('*'):
-            logging.info("Reduce File: %s", reduce)
             output_dir = Path(self.curr_job['output_directory'] + '/')
             file = str(reduce).split('/')[-1]
-            logging.info("File: %s", file)
             output_file = 'outputfile0' + file[-1] if int(file[-1]) < 10 else 'outputfile' + file[-1]
-            logging.debug("Output_file: %s", output_file)
             try: Path.mkdir(output_dir, parents=True)
             except(FileExistsError):
                 pass
             shutil.copyfile(reduce, str(output_dir) + '/' + output_file)
             reduce.unlink()
-            logging.info("Moving Complete")
 
     def handle_deaths(self):
-        #logging.info("IN HANDLE DEATHS")
         alive = 0
         for worker in self.workers:
-            #logging.info("Workers in handle deaths %s", self.workers[worker])
             if self.workers[worker]['status'] == 'dead':
-                # logging.info("WORKER: %s IS DEAD IN HANDLE DEATHS.", self.workers[worker]['pid'])
                 if self.workers[worker]['task']:
                     self.tasks.append(self.workers[worker]['task'])
                     self.workers[worker]['task'] = None
-                if self.tasks:
-                    logging.info("Tasks left in HANDLE DEATHS: %s", self.tasks)
-                else:
-                    logging.info("NO TASKS IN HANDLE_DEATHS!")
             else:
                 alive += 1          
         return alive
@@ -534,53 +482,4 @@ Error Handling Code for failed socket sending:
     except socket.error as err:
         print("Failed to send job to manager.")
         print(err)
-
-message_dict = {
-    "message_type": "register",
-    "worker_host": "localhost",
-    "worker_port1": 6001,
-    "worker_port2": 6002,
-    "worker_pid1": 77811,
-    "worker_pid2": 77893,
-}
-logging.debug("Manager:%s, %s received\n%s",
-    port_number, hb_port_number, 
-    json.dumps(message_dict, indent=2),
-)
-logging.debug("IMPLEMENT ME!")
-"""
-
-
-
-"""
-        logging.info("Generating reduce files...")
-        # Get all important path info:
-        job_id = Path('job-' + str(curr_job['job_id']))
-        grouper_folder = Path('tmp' / job_id / 'grouper-output/')
-        extracted_file = []
-        # Loop through all sorted files:
-        logging.info("Grouper_Folder: %s", grouper_folder)
-        for sorted_file in grouper_folder.glob('sorted*'):
-            # Open file
-            logging.info("Sorted File: %s", sorted_file)
-            with open(str(sorted_file), 'r') as s:
-                # Store file contents into list of list of strings
-                extracted_file = [line for line in s]
-            
-            logging.debug("# of Reducers: %s", curr_job['num_reducers'])
-            extract_lines = []
-            for i in range(0, curr_job['num_reducers']):
-                indx = i % curr_job['num_reducers']
-                logging.info('Current reduce number: %s', indx + 1)
-                #logging.info("Extracted File: %s", extracted_file[0])
-                #extract_lines = [extracted_file[line] for line in range(0,len(extracted_file)) if line % curr_job['num_reducers'] == indx]
-                for line in range (0,len(extracted_file)):
-                    if line % curr_job['num_reducers'] == indx:
-                        extract_lines.append(extracted_file[line])
-                with open(str(grouper_folder) + "/reduce" + '0' + str(indx + 1), 'a') as f:
-                    for words in extract_lines:
-                        f.write(words)
-                    #logging.debug("Writing for reduce0%s complete.", indx + 1)
-
-
 """
