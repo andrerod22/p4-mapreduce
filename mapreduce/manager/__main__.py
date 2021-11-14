@@ -31,6 +31,7 @@ class Manager:
         self.stages = []
         self.jobs = []
         self.tasks = []
+        self.block_tcp = False
         self.sort_dex = 1 # Used for keeping track of sort file index, ex: sorted01, sorted02...
         #self.pending_responses = []
         cwd = Path.cwd()
@@ -44,20 +45,20 @@ class Manager:
         self.tmp_folder = tmp_folder
 
         # Create threads:
-        # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
+        logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
         tcp_thread = Thread(target=self.listen_tcp_manager, args=())
-        # fault_thread = Thread(target=self.fault_localization args=(self,))
+        fault_thread = Thread(target=self.fault_localization,args=())
         udp_thread.start()
         tcp_thread.start()
-        # fault_thread.start()
+        fault_thread.start()
         udp_thread.join()
         tcp_thread.join()
-        # fault_thread.join()
+        fault_thread.join()
     
     # Thread Specific Functions
     def listen_udp_socket(self):
-        # TODO DECLARE DEAD WORKER IF MORE THAN 5 PINGS UNRESPONDED
+        # TODO DECLARE DEAD WORKER IF MORE THAN 5 PINGS, meaning it doesn't send 5 heartbeats (10s). 
         # Create UDP Socket for UDP thread:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -75,6 +76,18 @@ class Manager:
                     message_dict = json.loads(message_str)
                 except (JSONDecodeError, TypeError):
                     continue
+                #if we receive a heartbeat restore the timer. 
+                #Does fault localization mark as dead before checking if its dead here?
+                
+                try: 
+                    if self.workers[message_dict['worker_pid']]['status'] != 'dead':
+                        # logging.info("Worker INFO: %s", message_dict)
+                        # logging.info("HEART BEAT!")
+                        # logging.info("Worker Info: %s", self.workers[message_dict['worker_pid']])
+                        self.workers[message_dict['worker_pid']]['timer'] = 10
+                except KeyError:
+                    continue
+                
         logging.debug("Manager:%s Shutting down...", self.port_number) 
 
 
@@ -87,27 +100,26 @@ class Manager:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("localhost", self.port_number))
             sock.listen()
-            # Socket accept() and recv() will block for a maximum of 1 second.  If you
-            # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
-                # Wait for a connection for 1s.  The socket library avoids consuming
-                # CPU while waiting for a connection.
+                #logging.info("Listening...")
                 try:
                     clientsocket, address = sock.accept()
                 except socket.timeout:
+                    #logging.info("timeout")
                     for worker in self.workers:
                         if self.workers[worker]['status'] == 'ready':
-                            self.resume_job()
+                            #logging.info("Resuming Job...")
+                            if not self.block_tcp:
+                                logging.info("No new messages, checking for jobs")
+                                self.resume_job()
                     continue
                 print("Connection from", address[0])
-
                 # Receive data, one chunk at a time.  If recv() times out before we can
                 # read a chunk, then go back to the top of the loop and try again.
                 # When the client closes the connection, recv() returns empty data,
                 # which breaks out of the loop.  We make a simplifying assumption that
                 # the client will always cleanly close the connection.
-                # BUG BUG BUG BUG BUG BUG BUG BUG IN HERE IN HERE IN HERE IN HERE
                 with clientsocket:
                     message_chunks = []
                     while True:
@@ -117,39 +129,41 @@ class Manager:
                             logging.debug("Manager:%s timeout", self.port_number)
                             continue
                         if not data:
+                            # logging.info("didn't get data")
                             break
+                        # logging.info("Got Data")
                         message_chunks.append(data)
-                # BUG BUG BUG BUG BUG BUG BUG BUG IN HERE IN HERE IN HERE IN HERE
                 # Decode list-of-byte-strings to UTF8 and parse JSON data
                 message_bytes = b''.join(message_chunks)
                 message_str = message_bytes.decode("utf-8")
                 try:
                     message_dict = json.loads(message_str)
                 except json.JSONDecodeError:
+                    # logging.info("JSON ERROR")
                     continue
-                logging.debug("Manager:%s received %s", self.port_number, message_dict)
+                logging.info("Manager:%s received %s", self.port_number, message_dict)
                 if message_dict['message_type'] == 'status':
                     if message_dict['status'] == 'finished':
                         pid = message_dict['worker_pid']
+                        logging.info("Worker: %s finished.", pid)
                         self.workers[pid]['status'] = 'ready'
                         self.resume_job()
+                        logging.info("LEAVING STATUS..")
                 
                 response = self.generate_response(message_dict)
-                # Send response to Worker's TCP
-                #logging.debug("Manager:%s sent %s", self.port_number, response)
 
-                # This is fucking bullshit
                 if response['message_type'] == 'register_ack':
-                    # if self.tasks:
-                        # Check if worker is finished first:
-                        # continue
                     self.send_tcp_worker(response, response['worker_port'])
-
+                    #sorted(self.workers)
+                    # check if there is any work for this worker to do. For manager_09
+                    if self.tasks and not self.block_tcp:
+                        self.resume_job()
 
                 elif response['message_type'] == 'shutdown':
                     logging.debug("Shutting down workers: %s", self.workers) 
                     for worker in self.workers:
-                        self.send_tcp_worker(response, self.workers[worker]['port'])
+                        if self.workers[worker]['status'] != 'dead':
+                            self.send_tcp_worker(response, self.workers[worker]['port'])
                     break
                 elif response['message_type'] == 'new_manager_job':
                     self.make_job()
@@ -164,16 +178,12 @@ class Manager:
                         self.handle_partition_done = True
                         # ready_count = 0
                         for worker in self.workers:
-                            if self.workers[worker]['status'] == 'ready' and self.jobs:
+                            if self.workers[worker]['status'] == 'ready' and self.jobs and not self.block_tcp:
                                 self.execute_job()
                                 break
-                        # if self.jobs and ready_count == len(self.workers):
-                            # self.execute_job()
-                            # if self.workers[worker]['status'] == 'ready' and self.jobs:
-                                # self.execute_job()
-                                # break
                     else:
-                        self.resume_job()
+                        if not self.block_tcp:
+                            self.resume_job()
                     self.job_ids += 1
             self.alive = False
             logging.debug("Manager:%s Shutting down...", self.port_number) 
@@ -199,6 +209,7 @@ class Manager:
         path.rmdir()
 
     def execute_job(self):
+        #logging.info("EXECUTING JOB...")
         if self.stages[0] == 'map':
             if not self.handle_partition_done:
                 self.handle_partioning(self.curr_job['num_mappers'])
@@ -209,6 +220,7 @@ class Manager:
                 logging.info("Manager:%s begin group stage", self.port_number)
                 self.sort_partition(self.curr_job)
             self.group_stage(self.curr_job)
+            logging.info("TASKS LEFT FROM GROUP: %s", self.tasks)
         elif self.stages[0] == 'reduce':
             if not self.handle_partition_done:
                 logging.info("Manager:%s end group stage", self.port_number)
@@ -217,23 +229,29 @@ class Manager:
             self.mapreduce_stage(self.curr_job, 'reducer')
             if not self.tasks:
                 logging.info("Manager:%s end reduce stage", self.port_number)
-
+        #logging.info("LEAVING EXECUTE...")
 
     def resume_job(self):
-        #if self.stages:
-            #logging.info("%s tasks left: %s", self.stages[0], self.tasks)
-        if not self.tasks:
+        # logging.info("RESUMING JOB...")
+        # logging.info("TASKS LEFT: %s", self.tasks)
+        ready_count = 0
+        busy_worker = False # a busy worker should not enter that 
+        for worker in self.workers:
+            if self.workers[worker]['status'] == 'ready':
+                ready_count += 1
+            elif self.workers[worker]['status'] == 'busy':
+                busy_worker = True
+        # logging.info("Workers Ready: %s", ready_count)
+        # logging.info("Busy Worker: %s", busy_worker)
+        if not self.tasks and not busy_worker:
+            #logging.info("HANDLING POSSIBLE DEATHS...")
             # Make sure all workers are ready before moving to next stage
-            ready_count = 0
-            for worker in self.workers:
-                if self.workers[worker]['status'] == 'ready':
-                    ready_count += 1
             # Check if any workers, died and reassign tasks:
-            #if self.check_for_deaths():
-                #self.tasks.append(self.get_dead_tasks())
-            #else:
-            if self.stages and ready_count == len(self.workers):
-                logging.debug("Leaving: %s", self.stages[0])
+            alive_count = self.handle_deaths()
+            # logging.info("WORKERS ALIVE: %s", alive_count)
+            # logging.info("TASKS LEFT %s", len(self.tasks))
+            if self.stages and ready_count == alive_count and not self.tasks:
+                logging.info("Leaving: %s", self.stages[0])
                 self.stages.pop(0)
                 self.handle_partition_done = False
                 if not self.stages:
@@ -283,6 +301,7 @@ class Manager:
                 'pid': response['worker_pid'],
                 'status': 'ready',
                 'task': '',
+                'timer': 10
             }
 
         elif message_dict['message_type'] == 'new_manager_job':
@@ -316,49 +335,47 @@ class Manager:
             tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
             partioned.append(tasks)
         self.tasks = partioned
+        #logging.info("MAP TASKS GIVEN: %s and num_mapper: %s", self.tasks, num)
 
     def mapreduce_stage(self, curr_job, stage):
-        #for _ in range(len(self.tasks)):
-        while self.tasks:
-            busy_count = 0
-            for worker in self.workers:
-                if self.tasks and self.workers[worker]['status'] == 'ready': 
-                    # logging.info("current job: " + str(curr_job['job_id']))
-                    job_id = 'job-' + str(curr_job['job_id']) + '/'
-                    tmpPath = Path('tmp/')
-                    output_folder = stage + '-output/'
-                    
-                    response = {
-                        "message_type": "new_worker_task",
-                        "input_files": self.tasks[0],
-                        "executable": curr_job[stage + '_executable'],
-                        "output_directory": str(Path(tmpPath / job_id / output_folder)),
-                        "worker_pid": self.workers[worker]['pid']
-                    }
-                    #logging.info("OUTPUT_DIRECTORY IN MAPREDUCE STAGE: %s", str(Path(tmpPath / job_id / output_folder)))
-                    self.send_tcp_worker(response, self.workers[worker]['port'])
-                    self.workers[worker]['status'] = 'busy' #if len(self.workers) > 1 else 'ready' 
-                    self.workers[worker]['task'] = self.tasks[0]
-                    # If there is only one worker, we need to append all tasks in case it dies!
-                    self.tasks.pop(0)
-                elif self.workers[worker]['status'] == 'busy':
-                    # logging.info("Worker %s is busy.", worker)
-                    busy_count += 1
-            if busy_count == len(self.workers):
-                # logging.info("All workers busy!")
-                return None
+        #logging.info("WORKERS: %s", self.workers)
+        for worker in sorted(self.workers):
+            if self.tasks and self.workers[worker]['status'] == 'ready': 
+                # logging.info("current job: " + str(curr_job['job_id']))
+                job_id = 'job-' + str(curr_job['job_id']) + '/'
+                tmpPath = Path('tmp/')
+                output_folder = stage + '-output/'
+                response = {
+                    "message_type": "new_worker_task",
+                    "input_files": self.tasks[0],
+                    "executable": curr_job[stage + '_executable'],
+                    "output_directory": str(Path(tmpPath / job_id / output_folder)),
+                    "worker_pid": self.workers[worker]['pid']
+                }
+                logging.info("Sending worker task to worker %s", self.workers[worker]['pid'])
+                self.send_tcp_worker(response, self.workers[worker]['port'])
+                self.workers[worker]['status'] = 'busy' #if len(self.workers) > 1 else 'ready' 
+                self.workers[worker]['task'] = self.tasks[0]
+                # If there is only one worker, we need to append all tasks in case it dies!
+                self.tasks.pop(0)
+            elif self.workers[worker]['status'] == 'busy':
+                logging.info("Worker %s is busy.", worker)
+
 
     def sort_partition(self, curr_job):
-        #get list of input files, ex: "tmp/job-0/mapper-output/file01"
+        live_workers = 0
+        for worker in self.workers:
+            if self.workers[worker]['status'] != 'dead':
+                live_workers += 1
         job_id = 'job-' + str(curr_job['job_id']) + '/'
         tmpPath = Path('tmp/')
         output_direc = Path(tmpPath / job_id / 'mapper-output/')
         map_files = [str(e) for e in output_direc.iterdir() if e.is_file()]
         map_files = sorted(map_files)
         logging.info("MAP FILES: %s", map_files)
-        #round robin the map_output into self.tasks for each worker.
         partitioned = []
-        num_workers = len(self.workers)
+        #logging.info("Live workers: %s, Total Workers: %s",live_workers, len(self.workers))
+        num_workers = live_workers # len(self.workers)
         if len(map_files) >= num_workers: # If the number of files is greater than the number of workers. 
             for i in range(0, num_workers):
                 indx = i % num_workers
@@ -368,16 +385,15 @@ class Manager:
             for file in map_files:
                 partitioned.append([file])
         self.tasks = partitioned
-        #logging.info("TASKS IN SORT_PARTITION: %s", self.tasks)
         self.handle_partition_done = True
 
     def group_stage(self, curr_job):
         ### Only handles the sorting portion. 
-        logging.info("Grouping....")
+        # logging.info("Grouping....")
         for _ in range(len(self.tasks)):
-            busy_count = 0
-            for worker in self.workers:
-                if self.workers[worker]['status'] == 'ready': 
+            # busy_count = 0
+            for worker in sorted(self.workers):
+                if self.tasks and self.workers[worker]['status'] == 'ready': 
                     job_id = 'job-' + str(curr_job['job_id']) + '/'
                     #tmpPath = Path('tmp/')
                     sort_num = "0" + str(self.sort_dex) if self.sort_dex < 10 else str(self.sort_dex)
@@ -394,19 +410,14 @@ class Manager:
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.tasks[0]
                     self.tasks.pop(0)
-                    logging.info("Tasks inside grouping: %s", self.tasks)
                     self.sort_dex += 1
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
-                    busy_count += 1
-            if busy_count == len(self.workers):
-                logging.info("All workers busy!")
-                return None
+
     
     def prep_reduce(self, curr_job):
         self.handle_partition_done = True
-        logging.info("Generating reduce files...")
-        # Get all important path info:
+        # logging.info("Generating reduce files...")
         job_id = Path('job-' + str(curr_job['job_id']))
         grouper_folder = Path('tmp' / job_id / 'grouper-output/')
         sorted_files = [str(e) for e in grouper_folder.iterdir() if e.is_file()]
@@ -435,18 +446,42 @@ class Manager:
             w.close()
         for f in open_files:
             f.close()
-
-        #self.tasks = sorted([str(e) for e in file_writers])
-        #self.tasks = sorted(str(file_writers))
         self.tasks = [reduce_files]
         logging.info("TASKS in PREP-REDUCE: %s", self.tasks)
 
     def fault_localization(self):
-        time.sleep(10)
+        #UDP SOCKET
+        #Determine if a worker is dead, and mark it as 'dead'.
+        #How do we determine if a worker is dead? It misses 5 pings or 10 seconds. 
+        #We could have an array of timers  
+        keyErr = False
+        # logging.info("WHERE IN FAULT LOCALIZATION!")
+        while True:
+            if not self.alive: break
+            for worker in self.workers:
+                #logging.info("Worker: %s", self.workers[worker])
+                try: 
+                    if self.workers[worker]['status'] != 'dead':
+                        self.workers[worker]['timer'] -= 1
+                    if self.workers[worker]['timer'] <= 0 and self.workers[worker]['status'] != 'dead':
+                        self.workers[worker]['status'] = 'dead'
+                        self.block_tcp = True
+                        self.resume_job()
+                        self.block_tcp = False
+                    #logging.info("Worker: %s, time: %s status: %s", self.workers[worker]['pid'], self.workers[worker]['timer'], self.workers[worker]['status'])
+                except KeyError:
+                    keyErr = True
+                    logging.info("KEY ERROR in fault!")
+                    break
+            if not keyErr: 
+                #logging.info("sleeping...") 
+                time.sleep(1)
+            keyErr = False
         click.echo("Shutting down fault localization...")
  
     def generate_output(self):
         # Copy All Files From Src to Dest:
+        logging.info("Moving reduce files....")
         job_id = Path('job-' + str(self.curr_job['job_id']))
         reducer_folder = Path('tmp' / job_id / 'reducer-output/')
         for reduce in reducer_folder.glob('*'):
@@ -455,7 +490,7 @@ class Manager:
             file = str(reduce).split('/')[-1]
             logging.info("File: %s", file)
             output_file = 'outputfile0' + file[-1] if int(file[-1]) < 10 else 'outputfile' + file[-1]
-            logging.info("Output_file: %s", output_file)
+            logging.debug("Output_file: %s", output_file)
             try: Path.mkdir(output_dir, parents=True)
             except(FileExistsError):
                 pass
@@ -463,6 +498,23 @@ class Manager:
             reduce.unlink()
             logging.info("Moving Complete")
 
+    def handle_deaths(self):
+        #logging.info("IN HANDLE DEATHS")
+        alive = 0
+        for worker in self.workers:
+            #logging.info("Workers in handle deaths %s", self.workers[worker])
+            if self.workers[worker]['status'] == 'dead':
+                # logging.info("WORKER: %s IS DEAD IN HANDLE DEATHS.", self.workers[worker]['pid'])
+                if self.workers[worker]['task']:
+                    self.tasks.append(self.workers[worker]['task'])
+                    self.workers[worker]['task'] = None
+                if self.tasks:
+                    logging.info("Tasks left in HANDLE DEATHS: %s", self.tasks)
+                else:
+                    logging.info("NO TASKS IN HANDLE_DEATHS!")
+            else:
+                alive += 1          
+        return alive
 
 @click.command()
 @click.argument("port_number", nargs=1, type=int)
