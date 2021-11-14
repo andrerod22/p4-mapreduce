@@ -110,7 +110,7 @@ def worker_message_generator(mock_socket):
     # Wait for Manager to send reduce job message
     #breakpoint()
     utils.wait_for_reduce_messages(mock_socket)
-    breakpoint()
+    #breakpoint()
     # Reduce job status finished
     yield json.dumps({
         "message_type": "status",
@@ -186,6 +186,7 @@ def test_manager_05_dead_worker(mocker):
     # Pro-tip: show log messages and detailed diffs with
     #   $ pytest -vvs tests/test_manager_X.py
     messages = utils.get_messages(mock_socket)
+    # breakpoint()
     assert messages == [
         {
             "message_type": "register_ack",

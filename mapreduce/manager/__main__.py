@@ -111,6 +111,7 @@ class Manager:
                         if self.workers[worker]['status'] == 'ready':
                             #logging.info("Resuming Job...")
                             if not self.block_tcp:
+                                logging.info("No new messages, checking for jobs")
                                 self.resume_job()
                     continue
                 print("Connection from", address[0])
@@ -153,6 +154,7 @@ class Manager:
 
                 if response['message_type'] == 'register_ack':
                     self.send_tcp_worker(response, response['worker_port'])
+                    #sorted(self.workers)
                     # check if there is any work for this worker to do. For manager_09
                     if self.tasks and not self.block_tcp:
                         self.resume_job()
@@ -160,7 +162,8 @@ class Manager:
                 elif response['message_type'] == 'shutdown':
                     logging.debug("Shutting down workers: %s", self.workers) 
                     for worker in self.workers:
-                        self.send_tcp_worker(response, self.workers[worker]['port'])
+                        if self.workers[worker]['status'] != 'dead':
+                            self.send_tcp_worker(response, self.workers[worker]['port'])
                     break
                 elif response['message_type'] == 'new_manager_job':
                     self.make_job()
@@ -206,7 +209,7 @@ class Manager:
         path.rmdir()
 
     def execute_job(self):
-        logging.info("EXECUTING JOB...")
+        #logging.info("EXECUTING JOB...")
         if self.stages[0] == 'map':
             if not self.handle_partition_done:
                 self.handle_partioning(self.curr_job['num_mappers'])
@@ -226,11 +229,11 @@ class Manager:
             self.mapreduce_stage(self.curr_job, 'reducer')
             if not self.tasks:
                 logging.info("Manager:%s end reduce stage", self.port_number)
-        logging.info("LEAVING EXECUTE...")
+        #logging.info("LEAVING EXECUTE...")
 
     def resume_job(self):
-        logging.info("RESUMING JOB...")
-        logging.info("TASKS LEFT: %s", self.tasks)
+        # logging.info("RESUMING JOB...")
+        # logging.info("TASKS LEFT: %s", self.tasks)
         ready_count = 0
         busy_worker = False # a busy worker should not enter that 
         for worker in self.workers:
@@ -238,15 +241,15 @@ class Manager:
                 ready_count += 1
             elif self.workers[worker]['status'] == 'busy':
                 busy_worker = True
-        logging.info("Workers Ready: %s", ready_count)
-        logging.info("Busy Worker: %s", busy_worker)
+        # logging.info("Workers Ready: %s", ready_count)
+        # logging.info("Busy Worker: %s", busy_worker)
         if not self.tasks and not busy_worker:
-            logging.info("HANDLING POSSIBLE DEATHS...")
+            #logging.info("HANDLING POSSIBLE DEATHS...")
             # Make sure all workers are ready before moving to next stage
             # Check if any workers, died and reassign tasks:
             alive_count = self.handle_deaths()
-            logging.info("WORKERS ALIVE: %s", alive_count)
-            logging.info("TASKS LEFT %s", len(self.tasks))
+            # logging.info("WORKERS ALIVE: %s", alive_count)
+            # logging.info("TASKS LEFT %s", len(self.tasks))
             if self.stages and ready_count == alive_count and not self.tasks:
                 logging.info("Leaving: %s", self.stages[0])
                 self.stages.pop(0)
@@ -332,16 +335,16 @@ class Manager:
             tasks = [input_files[x] for x in range(len(input_files)) if x % num == indx]
             partioned.append(tasks)
         self.tasks = partioned
-        # logging.info("MAP TASKS GIVEN: %s and num_mapper: %s", self.tasks, num)
+        #logging.info("MAP TASKS GIVEN: %s and num_mapper: %s", self.tasks, num)
 
     def mapreduce_stage(self, curr_job, stage):
-        for worker in self.workers:
+        #logging.info("WORKERS: %s", self.workers)
+        for worker in sorted(self.workers):
             if self.tasks and self.workers[worker]['status'] == 'ready': 
                 # logging.info("current job: " + str(curr_job['job_id']))
                 job_id = 'job-' + str(curr_job['job_id']) + '/'
                 tmpPath = Path('tmp/')
                 output_folder = stage + '-output/'
-                
                 response = {
                     "message_type": "new_worker_task",
                     "input_files": self.tasks[0],
@@ -360,6 +363,10 @@ class Manager:
 
 
     def sort_partition(self, curr_job):
+        live_workers = 0
+        for worker in self.workers:
+            if self.workers[worker]['status'] != 'dead':
+                live_workers += 1
         job_id = 'job-' + str(curr_job['job_id']) + '/'
         tmpPath = Path('tmp/')
         output_direc = Path(tmpPath / job_id / 'mapper-output/')
@@ -367,7 +374,8 @@ class Manager:
         map_files = sorted(map_files)
         logging.info("MAP FILES: %s", map_files)
         partitioned = []
-        num_workers = len(self.workers)
+        #logging.info("Live workers: %s, Total Workers: %s",live_workers, len(self.workers))
+        num_workers = live_workers # len(self.workers)
         if len(map_files) >= num_workers: # If the number of files is greater than the number of workers. 
             for i in range(0, num_workers):
                 indx = i % num_workers
@@ -384,7 +392,7 @@ class Manager:
         # logging.info("Grouping....")
         for _ in range(len(self.tasks)):
             # busy_count = 0
-            for worker in self.workers:
+            for worker in sorted(self.workers):
                 if self.tasks and self.workers[worker]['status'] == 'ready': 
                     job_id = 'job-' + str(curr_job['job_id']) + '/'
                     #tmpPath = Path('tmp/')
@@ -473,6 +481,7 @@ class Manager:
  
     def generate_output(self):
         # Copy All Files From Src to Dest:
+        logging.info("Moving reduce files....")
         job_id = Path('job-' + str(self.curr_job['job_id']))
         reducer_folder = Path('tmp' / job_id / 'reducer-output/')
         for reduce in reducer_folder.glob('*'):
@@ -481,7 +490,7 @@ class Manager:
             file = str(reduce).split('/')[-1]
             logging.info("File: %s", file)
             output_file = 'outputfile0' + file[-1] if int(file[-1]) < 10 else 'outputfile' + file[-1]
-            logging.info("Output_file: %s", output_file)
+            logging.debug("Output_file: %s", output_file)
             try: Path.mkdir(output_dir, parents=True)
             except(FileExistsError):
                 pass

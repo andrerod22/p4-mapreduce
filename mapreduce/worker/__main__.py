@@ -62,7 +62,7 @@ class Worker:
                 #TODO FINISH THIS: CURRENTLY EXITING WITH 1 NOT SUCESSFUL
                 #p1 = subprocess.run(['cat', str(file_input_path)], capture_output=True, text=True)
                 with open(str(file_input_path), 'r') as i, open(str(file_output_path), 'w') as f:
-                    subprocess.run([message_dict["executable"], str(file_input_path)], stdin=i, stdout=f, text=True, check=True)
+                    subprocess.run([message_dict["executable"], str(file_input_path)], stdin=i, stdout=f, text=True, check=True, shell=True)
                 #input_obj.close()
             # Connect to the server
             sock.connect(("localhost", self.manager_tcp_port))
