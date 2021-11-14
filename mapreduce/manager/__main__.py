@@ -447,10 +447,13 @@ class Manager:
         while True:
             if self.alive is False: break
             for worker in self.workers:
-                if worker['status'] == 'ready':
-                    worker['timer'] -= 1
-                if worker['timer'] <= 0:
-                    worker['status'] = 'dead'
+                if self.workers[worker]['status'] == 'ready':
+                    try:
+                        self.workers[worker]['timer'] -= 1
+                    except KeyError:
+                        continue
+                    if self.workers[worker]['timer'] <= 0:
+                        self.workers[worker]['status'] = 'dead'
             time.sleep(1)
         click.echo("Shutting down fault localization...")
  
