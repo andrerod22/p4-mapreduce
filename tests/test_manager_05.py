@@ -76,7 +76,7 @@ def worker_message_generator(mock_socket):
     # Transfer control back to solution under test in between each check for
     # map messages.
     # BUG HERE
-    #breakpoint()
+    # breakpoint()
     for _ in utils.wait_for_map_messages_async(mock_socket, num=3):
         yield None
     # BUG BUG BUG 

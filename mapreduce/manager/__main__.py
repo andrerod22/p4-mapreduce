@@ -44,7 +44,7 @@ class Manager:
         self.tmp_folder = tmp_folder
 
         # Create threads:
-        # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
+        logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
         tcp_thread = Thread(target=self.listen_tcp_manager, args=())
         fault_thread = Thread(target=self.fault_localization,args=())
@@ -80,7 +80,9 @@ class Manager:
                 
                 try: 
                     if self.workers[message_dict['worker_pid']]['status'] != 'dead':
-                        #logging.info("VALID HEARTBEAT: %s", message_dict)
+                        # logging.info("Worker INFO: %s", message_dict)
+                        # logging.info("HEART BEAT!")
+                        # logging.info("Worker Info: %s", self.workers[message_dict['worker_pid']])
                         self.workers[message_dict['worker_pid']]['timer'] = 10
                 except KeyError:
                     continue
@@ -108,8 +110,7 @@ class Manager:
                         if self.workers[worker]['status'] == 'ready':
                             self.resume_job()
                     continue
-                # print("Connection from", address[0])
-
+                print("Connection from", address[0])
                 # Receive data, one chunk at a time.  If recv() times out before we can
                 # read a chunk, then go back to the top of the loop and try again.
                 # When the client closes the connection, recv() returns empty data,
@@ -170,11 +171,6 @@ class Manager:
                             if self.workers[worker]['status'] == 'ready' and self.jobs:
                                 self.execute_job()
                                 break
-                        # if self.jobs and ready_count == len(self.workers):
-                            # self.execute_job()
-                            # if self.workers[worker]['status'] == 'ready' and self.jobs:
-                                # self.execute_job()
-                                # break
                     else:
                         self.resume_job()
                     self.job_ids += 1
@@ -284,6 +280,7 @@ class Manager:
                 'pid': response['worker_pid'],
                 'status': 'ready',
                 'task': '',
+                'timer': 10
             }
 
         elif message_dict['message_type'] == 'new_manager_job':
@@ -320,7 +317,6 @@ class Manager:
         # logging.info("MAP TASKS GIVEN: %s and num_mapper: %s", self.tasks, num)
 
     def mapreduce_stage(self, curr_job, stage):
-        # busy_count = 0
         for worker in self.workers:
             if self.tasks and self.workers[worker]['status'] == 'ready': 
                 # logging.info("current job: " + str(curr_job['job_id']))
@@ -343,20 +339,15 @@ class Manager:
                 self.tasks.pop(0)
             elif self.workers[worker]['status'] == 'busy':
                 logging.info("Worker %s is busy.", worker)
-                # busy_count += 1
-        # if busy_count == len(self.workers):
-        #     logging.info("All workers currently busy!")
-        #     return None
+
 
     def sort_partition(self, curr_job):
-        #get list of input files, ex: "tmp/job-0/mapper-output/file01"
         job_id = 'job-' + str(curr_job['job_id']) + '/'
         tmpPath = Path('tmp/')
         output_direc = Path(tmpPath / job_id / 'mapper-output/')
         map_files = [str(e) for e in output_direc.iterdir() if e.is_file()]
         map_files = sorted(map_files)
         logging.info("MAP FILES: %s", map_files)
-        #round robin the map_output into self.tasks for each worker.
         partitioned = []
         num_workers = len(self.workers)
         if len(map_files) >= num_workers: # If the number of files is greater than the number of workers. 
@@ -368,12 +359,11 @@ class Manager:
             for file in map_files:
                 partitioned.append([file])
         self.tasks = partitioned
-        #logging.info("TASKS IN SORT_PARTITION: %s", self.tasks)
         self.handle_partition_done = True
 
     def group_stage(self, curr_job):
         ### Only handles the sorting portion. 
-        logging.info("Grouping....")
+        # logging.info("Grouping....")
         for _ in range(len(self.tasks)):
             # busy_count = 0
             for worker in self.workers:
@@ -394,19 +384,14 @@ class Manager:
                     self.workers[worker]['status'] = 'busy'
                     self.workers[worker]['task'] = self.tasks[0]
                     self.tasks.pop(0)
-                    logging.info("Tasks inside grouping: %s", self.tasks)
                     self.sort_dex += 1
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
-                    # busy_count += 1
-            # if busy_count == len(self.workers):
-            #     logging.info("All workers busy!")
-            #     return None
+
     
     def prep_reduce(self, curr_job):
         self.handle_partition_done = True
-        logging.info("Generating reduce files...")
-        # Get all important path info:
+        # logging.info("Generating reduce files...")
         job_id = Path('job-' + str(curr_job['job_id']))
         grouper_folder = Path('tmp' / job_id / 'grouper-output/')
         sorted_files = [str(e) for e in grouper_folder.iterdir() if e.is_file()]
@@ -435,9 +420,6 @@ class Manager:
             w.close()
         for f in open_files:
             f.close()
-
-        #self.tasks = sorted([str(e) for e in file_writers])
-        #self.tasks = sorted(str(file_writers))
         self.tasks = [reduce_files]
         logging.info("TASKS in PREP-REDUCE: %s", self.tasks)
 
@@ -447,17 +429,19 @@ class Manager:
         #How do we determine if a worker is dead? It misses 5 pings or 10 seconds. 
         #We could have an array of timers  
         keyErr = False
+        # logging.info("WHERE IN FAULT LOCALIZATION!")
         while True:
             if self.alive is False: break
             for worker in self.workers:
+                # logging.info("Worker: %s", self.workers[worker])
                 try: 
-                    logging.info("Worker: %s timer: %s", self.workers[worker]['pid'], self.workers[worker]['timer'])
-                    if self.workers[worker]['status'] == 'ready':
+                    if self.workers[worker]['status'] != 'dead':
                         self.workers[worker]['timer'] -= 1
                     if self.workers[worker]['timer'] <= 0:
                         self.workers[worker]['status'] = 'dead'
                 except KeyError:
                     keyErr = True
+                    logging.info("KEY ERROR in fault!")
                     break
             if not keyErr: time.sleep(1)
             keyErr = False
