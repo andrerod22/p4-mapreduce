@@ -1,20 +1,22 @@
+"""worker main"""
 import os
 import logging
 import json
 import time
 from threading import Thread
-import click
-import mapreduce.utils
-import pathlib
+# import mapreduce.utils
+# import pathlib
 from pathlib import Path
 import socket
 import subprocess
 import heapq
+import click
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
 
 class Worker:
+    """worker class rise up"""
     def __init__(self, manager_tcp_port, manager_hb_port, worker_port):
         self.worker_id = os.getpid()
         self.alive = True
@@ -30,8 +32,9 @@ class Worker:
         self.send_register_msg()
 
         tcp_thread.join()
-    
+
     def send_register_msg(self):
+        """send register to manager"""
         # create an INET, STREAMing socket, this is TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
 
@@ -49,17 +52,27 @@ class Worker:
 
 
     def handle_msg(self, message_dict):
+        """handle manager message, work on task, and return response"""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            logging.info("input: %s, output: %s, executable: %s", message_dict['input_files'], message_dict['output_directory'], message_dict['executable'])
-            fileInput = message_dict["input_files"]
+            logging.info("input: %s, output: %s, executable: %s",
+                         message_dict['input_files'],
+                         message_dict['output_directory'],
+                         message_dict['executable'])
+            file_input = message_dict["input_files"]
             output_files = []
-            for file in fileInput:
+            for file in file_input:
                 file_input_path = Path(file)
                 file_name = str(file.split('/')[-1])
                 file_output_path = Path(message_dict["output_directory"]) / file_name
                 output_files.append(str(file_output_path))
-                with open(str(file_input_path), 'r') as i, open(str(file_output_path), 'w') as f:
-                    subprocess.run([message_dict["executable"], str(file_input_path)], stdin=i, stdout=f, text=True, check=True, shell=True)
+                with open(
+                          str(file_input_path),
+                          'r', encoding='UTF-8') as i, open(
+                                                            str(file_output_path), 'w',
+                                                            encoding='UTF-8') as file:
+                    subprocess.run([message_dict["executable"],
+                                   str(file_input_path)], stdin=i, stdout=file,
+                                   text=True, check=True, shell=True)
 
             # Connect to the server
             sock.connect(("localhost", self.manager_tcp_port))
@@ -73,30 +86,32 @@ class Worker:
 
 
     def handle_sort(self, message_dict):
+        """handle sort and return response to manager"""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             need_sorting = message_dict['input_files']
-            # go through each file in need_sorting and sort the file by line. 
-            # Treat each line as a string. 
+            # go through each file in need_sorting and sort the file by line.
+            # Treat each line as a string.
             for file in need_sorting:
-                Sorted_file = []
-                with open(file, 'r') as r: 
-                    lines = [line.replace('\n', '') for line in r]
-                    Sorted_file = sorted(lines)
-                with open(file, "w") as w:
-                    for line in Sorted_file:
+                sorted_file = []
+                with open(file, 'r', encoding='UTF-8') as read_f:
+                    lines = [line.replace('\n', '') for line in read_f]
+                    sorted_file = sorted(lines)
+                with open(file, "w", encoding='UTF-8') as write_f:
+                    for line in sorted_file:
                         line += '\n'
-                        # if not (line == Sorted_file[-1]):
+                        # if not (line == sorted_file[-1]):
                         #     line += '\n'
-                        w.write(line)
-            
+                        write_f.write(line)
+
             open_files = []
-            for f in need_sorting:
-                open_files.append(open(f))
-            with open(message_dict['output_file'], 'w') as writer:
+            for file in need_sorting:
+                # need fix
+                open_files.append(open(file))
+            with open(message_dict['output_file'], 'w', encoding='UTF-8') as writer:
                 for line in heapq.merge(*open_files):
                     writer.write(line)
-            for f in open_files:
-                f.close()
+            for file in open_files:
+                file.close()
             sock.connect(("localhost", self.manager_tcp_port))
             message = json.dumps({
                 "message_type": "status",
@@ -107,9 +122,10 @@ class Worker:
             sock.sendall(message.encode('utf-8'))
 
     def listen_tcp_worker(self):
+        """listen to manager and generate appropriate response"""
         udp_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
-        # Note: context manager syntax allows for sockets to 
+        # Note: context manager syntax allows for sockets to
         # automatically be closed when an exception is raised or control flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
@@ -163,11 +179,12 @@ class Worker:
                 if response['message_type'] == 'shutdown':
                     # Kill the UDP thread before ending TCP thread:
                     self.alive = False
-                    try: udp_thread.join()
-                    except(RuntimeError):
+                    try:
+                        udp_thread.join()
+                    except RuntimeError:
                         pass
                     break
-                elif response['message_type'] == 'new_worker_task':
+                if response['message_type'] == 'new_worker_task':
                     self.handle_msg(response)
                 elif response['message_type'] == 'new_sort_task':
                     self.handle_sort(response)
@@ -178,23 +195,26 @@ class Worker:
 
 
     def scream_udp_socket(self):
+        """send heartbeat if not dead"""
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             # Connect to the UDP socket on server
             sock.connect(("localhost", self.manager_hb_port))
             # Send a heartbeat every 2 seconds:
             # Later, figure out fault tolerance (Once a worker dies)
             while True:
-                if self.alive is False: break
+                if self.alive is False:
+                    break
                 message = json.dumps({
                         "message_type": "heartbeat",
                         "worker_pid": self.worker_id
                     })
                 sock.sendall(message.encode('utf-8'))
                 time.sleep(2)
-        logging.debug("Worker:%s Shutting down...", self.manager_hb_port) 
+        logging.debug("Worker:%s Shutting down...", self.manager_hb_port)
 
 
     def generate_response(self, message_dict):
+        """generate response to manager in the appropriate format"""
         response = None
         #logging.info("Worker: %s Received message: %s", self.worker_port, message_dict)
         if message_dict['message_type'] == 'register_ack':
@@ -231,14 +251,9 @@ class Worker:
 @click.argument("manager_hb_port", nargs=1, type=int)
 @click.argument("worker_port", nargs=1, type=int)
 def main(manager_tcp_port, manager_hb_port, worker_port):
+    """Initialize Constructor and begin work."""
     Worker(manager_tcp_port, manager_hb_port, worker_port)
     print("shutting down worker...")
 
 if __name__ == '__main__':
     main()
-
-
-"""
-# message = json.dumps(response)
-# sock.sendall(message.encode('utf-8'))
-"""
