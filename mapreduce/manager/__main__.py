@@ -47,17 +47,17 @@ class Manager:
         # logging.debug("Manager:%s, %s", self.port_number, self.hb_port_number)
         udp_thread = Thread(target=self.listen_udp_socket, args=())
         tcp_thread = Thread(target=self.listen_tcp_manager, args=())
-        # fault_thread = Thread(target=self.fault_localization,args=())
+        fault_thread = Thread(target=self.fault_localization,args=())
         udp_thread.start()
         tcp_thread.start()
-        # fault_thread.start()
+        fault_thread.start()
         udp_thread.join()
         tcp_thread.join()
-        # fault_thread.join()
+        fault_thread.join()
     
     # Thread Specific Functions
     def listen_udp_socket(self):
-        # TODO DECLARE DEAD WORKER IF MORE THAN 5 PINGS UNRESPONDED
+        # TODO DECLARE DEAD WORKER IF MORE THAN 5 PINGS, meaning it doesn't send 5 heartbeats (10s). 
         # Create UDP Socket for UDP thread:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -75,6 +75,10 @@ class Manager:
                     message_dict = json.loads(message_str)
                 except (JSONDecodeError, TypeError):
                     continue
+                #if we receive a heartbeat restore the timer. 
+                if self.workers[message_dict['worker_pid']]['status'] != 'dead':
+                    self.workers[message_dict['worker_pid']]['timer'] = 10
+
         
         logging.debug("Manager:%s Shutting down...", self.port_number) 
 
@@ -88,8 +92,6 @@ class Manager:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("localhost", self.port_number))
             sock.listen()
-            # Socket accept() and recv() will block for a maximum of 1 second.  If you
-            # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
                 # Wait for a connection for 1s.  The socket library avoids consuming
@@ -101,7 +103,7 @@ class Manager:
                         if self.workers[worker]['status'] == 'ready':
                             self.resume_job()
                     continue
-                print("Connection from", address[0])
+                # print("Connection from", address[0])
 
                 # Receive data, one chunk at a time.  If recv() times out before we can
                 # read a chunk, then go back to the top of the loop and try again.
@@ -134,14 +136,8 @@ class Manager:
                         self.resume_job()
                 
                 response = self.generate_response(message_dict)
-                # Send response to Worker's TCP
-                #logging.debug("Manager:%s sent %s", self.port_number, response)
 
-                # This is fucking bullshit
                 if response['message_type'] == 'register_ack':
-                    # if self.tasks:
-                        # Check if worker is finished first:
-                        # continue
                     self.send_tcp_worker(response, response['worker_port'])
                     # check if there is any work for this worker to do. For manager_09
                     if self.tasks:
@@ -448,8 +444,14 @@ class Manager:
         #Determine if a worker is dead, and mark it as 'dead'.
         #How do we determine if a worker is dead? It misses 5 pings or 10 seconds. 
         #We could have an array of timers  
-
-        time.sleep(10)
+        while True:
+            if self.alive is False: break
+            for worker in self.workers:
+                if worker['status'] == 'ready':
+                    worker['timer'] -= 1
+                if worker['timer'] <= 0:
+                    worker['status'] = 'dead'
+            time.sleep(1)
         click.echo("Shutting down fault localization...")
  
     def generate_output(self):
