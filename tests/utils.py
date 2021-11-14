@@ -109,7 +109,7 @@ def is_register_message(message):
 
 def is_map_message(message):
     """Return True if message starts a map job."""
-    # breakpoint()
+    #breakpoint()
     return (
         "message_type" in message and
         message["message_type"] == "new_worker_task" and
@@ -192,7 +192,7 @@ def wait_for_messages(function, mock_socket, num=1):
 
 def wait_for_messages_async(function, mock_socket, num=1):
     """Yield every 1s, return when function()==True on num messages."""
-    # if num == 2:
+    # if num == 3:
     #     breakpoint()
     for _ in range(TIMEOUT_LONG):
         messages = get_messages(mock_socket)

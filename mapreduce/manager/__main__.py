@@ -76,10 +76,15 @@ class Manager:
                 except (JSONDecodeError, TypeError):
                     continue
                 #if we receive a heartbeat restore the timer. 
-                if self.workers[message_dict['worker_pid']]['status'] != 'dead':
-                    self.workers[message_dict['worker_pid']]['timer'] = 10
-
-        
+                #Does fault localization mark as dead before checking if its dead here?
+                
+                try: 
+                    if self.workers[message_dict['worker_pid']]['status'] != 'dead':
+                        #logging.info("VALID HEARTBEAT: %s", message_dict)
+                        self.workers[message_dict['worker_pid']]['timer'] = 10
+                except KeyError:
+                    continue
+                
         logging.debug("Manager:%s Shutting down...", self.port_number) 
 
 
@@ -132,6 +137,7 @@ class Manager:
                 if message_dict['message_type'] == 'status':
                     if message_dict['status'] == 'finished':
                         pid = message_dict['worker_pid']
+                        logging.info("Worker: %s finished.", pid)
                         self.workers[pid]['status'] = 'ready'
                         self.resume_job()
                 
@@ -226,10 +232,8 @@ class Manager:
                 if self.workers[worker]['status'] == 'ready':
                     ready_count += 1
             # Check if any workers, died and reassign tasks:
-            #if self.check_for_deaths():
-                #self.tasks.append(self.get_dead_tasks())
-            #else:
-            if self.stages and ready_count == len(self.workers):
+            alive_count = self.handle_deaths()
+            if self.stages and ready_count == alive_count and not self.tasks:
                 logging.debug("Leaving: %s", self.stages[0])
                 self.stages.pop(0)
                 self.handle_partition_done = False
@@ -316,7 +320,7 @@ class Manager:
         # logging.info("MAP TASKS GIVEN: %s and num_mapper: %s", self.tasks, num)
 
     def mapreduce_stage(self, curr_job, stage):
-        busy_count = 0
+        # busy_count = 0
         for worker in self.workers:
             if self.tasks and self.workers[worker]['status'] == 'ready': 
                 # logging.info("current job: " + str(curr_job['job_id']))
@@ -337,14 +341,12 @@ class Manager:
                 self.workers[worker]['task'] = self.tasks[0]
                 # If there is only one worker, we need to append all tasks in case it dies!
                 self.tasks.pop(0)
-            elif self.workers[worker]['status'] == 'dead':
-                self.tasks.append(self.workers[worker]['task'])
             elif self.workers[worker]['status'] == 'busy':
                 logging.info("Worker %s is busy.", worker)
-                busy_count += 1
-        if busy_count == len(self.workers):
-            logging.info("All workers currently busy!")
-            return None
+                # busy_count += 1
+        # if busy_count == len(self.workers):
+        #     logging.info("All workers currently busy!")
+        #     return None
 
     def sort_partition(self, curr_job):
         #get list of input files, ex: "tmp/job-0/mapper-output/file01"
@@ -373,9 +375,9 @@ class Manager:
         ### Only handles the sorting portion. 
         logging.info("Grouping....")
         for _ in range(len(self.tasks)):
-            busy_count = 0
+            # busy_count = 0
             for worker in self.workers:
-                if self.workers[worker]['status'] == 'ready': 
+                if self.tasks and self.workers[worker]['status'] == 'ready': 
                     job_id = 'job-' + str(curr_job['job_id']) + '/'
                     #tmpPath = Path('tmp/')
                     sort_num = "0" + str(self.sort_dex) if self.sort_dex < 10 else str(self.sort_dex)
@@ -396,10 +398,10 @@ class Manager:
                     self.sort_dex += 1
                 elif self.workers[worker]['status'] == 'busy':
                     logging.info("Worker %s is busy.", worker)
-                    busy_count += 1
-            if busy_count == len(self.workers):
-                logging.info("All workers busy!")
-                return None
+                    # busy_count += 1
+            # if busy_count == len(self.workers):
+            #     logging.info("All workers busy!")
+            #     return None
     
     def prep_reduce(self, curr_job):
         self.handle_partition_done = True
@@ -444,17 +446,21 @@ class Manager:
         #Determine if a worker is dead, and mark it as 'dead'.
         #How do we determine if a worker is dead? It misses 5 pings or 10 seconds. 
         #We could have an array of timers  
+        keyErr = False
         while True:
             if self.alive is False: break
             for worker in self.workers:
-                if self.workers[worker]['status'] == 'ready':
-                    try:
+                try: 
+                    logging.info("Worker: %s timer: %s", self.workers[worker]['pid'], self.workers[worker]['timer'])
+                    if self.workers[worker]['status'] == 'ready':
                         self.workers[worker]['timer'] -= 1
-                    except KeyError:
-                        continue
                     if self.workers[worker]['timer'] <= 0:
                         self.workers[worker]['status'] = 'dead'
-            time.sleep(1)
+                except KeyError:
+                    keyErr = True
+                    break
+            if not keyErr: time.sleep(1)
+            keyErr = False
         click.echo("Shutting down fault localization...")
  
     def generate_output(self):
@@ -475,6 +481,15 @@ class Manager:
             reduce.unlink()
             logging.info("Moving Complete")
 
+    def handle_deaths(self):
+        alive = 0
+        for worker in self.workers:
+            if self.workers[worker]['status'] == 'dead':
+                logging.info("WORKER: %s IS DEAD IN HANDLE DEATHS.", self.workers[worker]['pid'])
+                self.tasks.append(self.workers[worker]['task'])
+            else:
+                alive += 1          
+        return alive
 
 @click.command()
 @click.argument("port_number", nargs=1, type=int)
