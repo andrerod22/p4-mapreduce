@@ -318,7 +318,7 @@ class Manager:
 
     def mapreduce_stage(self, curr_job, stage):
         for worker in sorted(self.workers):
-            if self.tasks and self.workers[worker]['status'] == 'ready': 
+            if self.tasks and self.workers[worker]['status'] == 'ready':
                 job_id = 'job-' + str(curr_job['job_id']) + '/'
                 tmpPath = Path('tmp/')
                 output_folder = stage + '-output/'
@@ -445,11 +445,11 @@ class Manager:
                 except KeyError:
                     keyErr = True
                     break
-            if not keyErr: 
+            if not keyErr:
                 time.sleep(1)
             keyErr = False
         # click.echo("Shutting down fault localization...")
- 
+
     def generate_output(self):
         # Copy All Files From Src to Dest:
         job_id = Path('job-' + str(self.curr_job['job_id']))
