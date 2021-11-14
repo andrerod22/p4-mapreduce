@@ -1,4 +1,4 @@
-"""worker main"""
+"""worker main."""
 import os
 import logging
 import json
@@ -16,8 +16,10 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 class Worker:
-    """worker class rise up"""
+    """worker class rise up."""
+
     def __init__(self, manager_tcp_port, manager_hb_port, worker_port):
+        """Initiate worker."""
         self.worker_id = os.getpid()
         self.alive = True
         self.manager_tcp_port = manager_tcp_port
@@ -34,7 +36,7 @@ class Worker:
         tcp_thread.join()
 
     def send_register_msg(self):
-        """send register to manager"""
+        """Send register to manager."""
         # create an INET, STREAMing socket, this is TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
 
@@ -44,15 +46,14 @@ class Worker:
             # Send registration
             message = json.dumps({
                 "message_type": "register",
-                "worker_host" : "localhost",
-                "worker_port" : self.worker_port,
-                "worker_pid" : self.worker_id
+                "worker_host": "localhost",
+                "worker_port": self.worker_port,
+                "worker_pid": self.worker_id
                 })
             sock.sendall(message.encode('utf-8'))
 
-
     def handle_msg(self, message_dict):
-        """handle manager message, work on task, and return response"""
+        """Handle manager message, work on task, and return response."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             logging.info("input: %s, output: %s, executable: %s",
                          message_dict['input_files'],
@@ -62,31 +63,31 @@ class Worker:
             output_files = []
             for file in file_input:
                 file_input_path = Path(file)
-                file_name = str(file.split('/')[-1])
-                file_output_path = Path(message_dict["output_directory"]) / file_name
-                output_files.append(str(file_output_path))
+                f_name = str(file.split('/')[-1])
+                fout_path = Path(message_dict["output_directory"])/f_name
+                output_files.append(str(fout_path))
                 with open(
                           str(file_input_path),
-                          'r', encoding='UTF-8') as i, open(
-                                                            str(file_output_path), 'w',
-                                                            encoding='UTF-8') as file:
+                          'r',
+                          encoding='UTF-8') as i, open(str(fout_path),
+                                                       'w',
+                                                       encoding='UTF-8') as fi:
                     subprocess.run([message_dict["executable"],
-                                   str(file_input_path)], stdin=i, stdout=file,
+                                   str(file_input_path)], stdin=i, stdout=fi,
                                    text=True, check=True, shell=True)
 
             # Connect to the server
             sock.connect(("localhost", self.manager_tcp_port))
             message = json.dumps({
                 "message_type": "status",
-                "output_files" : output_files,
+                "output_files": output_files,
                 "status": "finished",
                 "worker_pid": self.worker_id
                 })
             sock.sendall(message.encode('utf-8'))
 
-
     def handle_sort(self, message_dict):
-        """handle sort and return response to manager"""
+        """Handle sort and return response to manager."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             need_sorting = message_dict['input_files']
             # go through each file in need_sorting and sort the file by line.
@@ -106,8 +107,9 @@ class Worker:
             open_files = []
             for file in need_sorting:
                 # need fix
-                open_files.append(open(file))
-            with open(message_dict['output_file'], 'w', encoding='UTF-8') as writer:
+                open_files.append(open(file, encoding='UTF-8'))
+            with open(message_dict['output_file'],
+                      'w', encoding='UTF-8') as writer:
                 for line in heapq.merge(*open_files):
                     writer.write(line)
             for file in open_files:
@@ -115,29 +117,32 @@ class Worker:
             sock.connect(("localhost", self.manager_tcp_port))
             message = json.dumps({
                 "message_type": "status",
-                "output_file" : message_dict['output_file'],
+                "output_file": message_dict['output_file'],
                 "status": "finished",
                 "worker_pid": self.worker_id
                 })
             sock.sendall(message.encode('utf-8'))
 
     def listen_tcp_worker(self):
-        """listen to manager and generate appropriate response"""
+        """Listen to manager and generate appropriate response."""
         udp_thread = Thread()
         # Create an INET, STREAMing socket, this is TCP
         # Note: context manager syntax allows for sockets to
-        # automatically be closed when an exception is raised or control flow returns.
+        # automatically be closed when an exception is raised or control
+        # flow returns.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             # Bind the socket to the server
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("localhost", self.worker_port))
             sock.listen()
 
-            # Socket accept() and recv() will block for a maximum of 1 second.  If you
+            # Socket accept() and recv() will block for a maximum of
+            # 1 second. If you
             # omit this, it blocks indefinitely, waiting for a connection.
             sock.settimeout(1)
             while True:
-                # Wait for a connection for 1s.  The socket library avoids consuming
+                # Wait for a connection for 1s.  The socket library
+                # avoids consuming
                 # CPU while waiting for a connection.
                 try:
                     clientsocket, address = sock.accept()
@@ -145,10 +150,13 @@ class Worker:
                     continue
                 print("Connection from", address[0])
 
-                # Receive data, one chunk at a time.  If recv() times out before we can
-                # read a chunk, then go back to the top of the loop and try again.
-                # When the client closes the connection, recv() returns empty data,
-                # which breaks out of the loop.  We make a simplifying assumption that
+                # Receive data, one chunk at a time.  If recv() times
+                # out before we can read a chunk, then go back to the
+                # top of the loop and try again.
+                # When the client closes the connection, recv()
+                # returns empty data,
+                # which breaks out of the loop.
+                # We make a simplifying assumption that
                 # the client will always cleanly close the connection.
                 with clientsocket:
                     message_chunks = []
@@ -170,11 +178,15 @@ class Worker:
                 except json.JSONDecodeError:
                     continue
                 response = self.generate_response(message_dict)
-                #logging.info("Worker:%s received %s", self.worker_port, response)
+                # logging.info("Worker:%s received %s",
+                # self.worker_port, response)
                 if response['message_type'] == 'register_ack':
-                    # Spawn a UDP thread and call the send_heartbeat funct:
-                    #logging.info("Worker:%s forwarding %s", self.worker_port, response)
-                    udp_thread = Thread(target=self.scream_udp_socket, args=())
+                    # Spawn a UDP thread and call the
+                    # send_heartbeat funct:
+                    # logging.info("Worker:%s forwarding %s",
+                    # self.worker_port, response)
+                    udp_thread = Thread(target=self.scream_udp_socket,
+                                        args=())
                     udp_thread.start()
                 if response['message_type'] == 'shutdown':
                     # Kill the UDP thread before ending TCP thread:
@@ -190,12 +202,12 @@ class Worker:
                     self.handle_sort(response)
 
                 else:
-                    logging.debug("Worker:%s received %s", self.worker_port, message_dict)
+                    logging.debug("Worker:%s received %s",
+                                  self.worker_port, message_dict)
         logging.debug("Worker:%s Shutting down...", self.worker_port)
 
-
     def scream_udp_socket(self):
-        """send heartbeat if not dead"""
+        """Send heartbeat if not dead."""
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             # Connect to the UDP socket on server
             sock.connect(("localhost", self.manager_hb_port))
@@ -212,18 +224,18 @@ class Worker:
                 time.sleep(2)
         logging.debug("Worker:%s Shutting down...", self.manager_hb_port)
 
-
     def generate_response(self, message_dict):
-        """generate response to manager in the appropriate format"""
+        """Generate response to manager in the appropriate format."""
         response = None
-        #logging.info("Worker: %s Received message: %s", self.worker_port, message_dict)
+        # logging.info("Worker: %s Received message: %s",
+        # self.worker_port, message_dict)
         if message_dict['message_type'] == 'register_ack':
             response = {
-                "message_type" : "register_ack"
+                "message_type": "register_ack"
             }
         elif message_dict['message_type'] == 'shutdown':
             response = {
-                "message_type" : "shutdown"
+                "message_type": "shutdown"
             }
         elif message_dict['message_type'] == 'new_worker_task':
             response = {
@@ -243,9 +255,6 @@ class Worker:
         return response
 
 
-
-
-
 @click.command()
 @click.argument("manager_tcp_port", nargs=1, type=int)
 @click.argument("manager_hb_port", nargs=1, type=int)
@@ -254,6 +263,7 @@ def main(manager_tcp_port, manager_hb_port, worker_port):
     """Initialize Constructor and begin work."""
     Worker(manager_tcp_port, manager_hb_port, worker_port)
     print("shutting down worker...")
+
 
 if __name__ == '__main__':
     main()
