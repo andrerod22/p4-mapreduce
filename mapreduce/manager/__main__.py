@@ -43,7 +43,7 @@ class Manager:
         tmp_folder = Path(cwd / 'tmp/')
         try:
             Path.mkdir(tmp_folder, parents=True)
-        except(FileExistsError):
+        except FileExistsError:
             for job in tmp_folder.glob('job-*'):
                 self.remove_jobs(job)
         self.tmp_folder = tmp_folder
@@ -488,7 +488,7 @@ class Manager:
             logging.debug("Output_file: %s", output_file)
             try:
                 Path.mkdir(output_dir, parents=True)
-            except(FileExistsError):
+            except FileExistsError:
                 pass
             shutil.copyfile(reduce, str(output_dir) + '/' + output_file)
             reduce.unlink()
