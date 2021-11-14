@@ -219,18 +219,21 @@ class Manager:
 
 
     def resume_job(self):
-        #if self.stages:
-            #logging.info("%s tasks left: %s", self.stages[0], self.tasks)
-        if not self.tasks:
+        ready_count = 0
+        busy_worker = False # a busy worker should not enter that 
+        for worker in self.workers:
+            if self.workers[worker]['status'] == 'ready':
+                ready_count += 1
+            elif self.workers[worker]['status'] == 'busy':
+                busy_worker = True
+        if not self.tasks and not busy_worker:
             # Make sure all workers are ready before moving to next stage
-            ready_count = 0
-            for worker in self.workers:
-                if self.workers[worker]['status'] == 'ready':
-                    ready_count += 1
             # Check if any workers, died and reassign tasks:
             alive_count = self.handle_deaths()
+            logging.info("Workers Alive: %s", alive_count)
+            logging.info("Tasks Left %s", len(self.tasks))
             if self.stages and ready_count == alive_count and not self.tasks:
-                logging.debug("Leaving: %s", self.stages[0])
+                logging.info("Leaving: %s", self.stages[0])
                 self.stages.pop(0)
                 self.handle_partition_done = False
                 if not self.stages:
@@ -331,7 +334,7 @@ class Manager:
                     "output_directory": str(Path(tmpPath / job_id / output_folder)),
                     "worker_pid": self.workers[worker]['pid']
                 }
-                #logging.info("OUTPUT_DIRECTORY IN MAPREDUCE STAGE: %s", str(Path(tmpPath / job_id / output_folder)))
+                logging.info("Sending worker task to worker %s", self.workers[worker]['pid'])
                 self.send_tcp_worker(response, self.workers[worker]['port'])
                 self.workers[worker]['status'] = 'busy' #if len(self.workers) > 1 else 'ready' 
                 self.workers[worker]['task'] = self.tasks[0]
@@ -468,8 +471,9 @@ class Manager:
     def handle_deaths(self):
         alive = 0
         for worker in self.workers:
+            logging.info("Workers in handle deaths %s", self.workers[worker])
             if self.workers[worker]['status'] == 'dead':
-                logging.info("WORKER: %s IS DEAD IN HANDLE DEATHS.", self.workers[worker]['pid'])
+                # logging.info("WORKER: %s IS DEAD IN HANDLE DEATHS.", self.workers[worker]['pid'])
                 self.tasks.append(self.workers[worker]['task'])
             else:
                 alive += 1          
