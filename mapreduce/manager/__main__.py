@@ -424,7 +424,11 @@ class Manager:
             open_files.append(open(f))
         prev_key = None
         for i in range(0, curr_job['num_reducers']):
-            f = open(str(grouper_folder) + '/reduce0' + str(i + 1), 'a')
+            file_num = (
+                "0" + str(i + 1) if (i + 1) < 10
+                else str(i + 1)
+            )
+            f = open(str(grouper_folder) + '/reduce' + file_num, 'a')
             reduce_files.append(str(grouper_folder) + '/reduce0' + str(i + 1))
             file_writers.append(f)
 
